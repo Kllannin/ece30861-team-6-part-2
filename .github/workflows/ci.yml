@@ -1,4 +1,4 @@
-name: CI Pipeline
+name: Python CI
 
 on:
   pull_request:
@@ -8,145 +8,27 @@ on:
 
 jobs:
   test:
-    name: Run Tests and Linting
+    name: Run Python Tests
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
+    - name: Set up Python
+      uses: actions/setup-python@v4
       with:
-        node-version: '18'
-        cache: 'npm'
+        python-version: '3.9'
         
     - name: Install dependencies
-      run: npm ci
-      
-    - name: Check for package.json
       run: |
-        if [ ! -f package.json ]; then
-          echo "❌ No package.json found - creating basic one"
-          npm init -y
-        fi
-      
-    - name: Create basic test if missing
-      run: |
-        if [ ! -f "test" ] && [ ! -f "__tests__" ]; then
-          echo "Creating basic test structure..."
-          mkdir -p test
-          cat > test/basic.test.js << 'EOF'
-          describe('Basic Server Test', () => {
-            test('Server dependencies load', () => {
-              expect(1 + 1).toBe(2);
-            });
-            
-            test('Basic health check', () => {
-              // This will be replaced with actual API tests
-              expect(true).toBe(true);
-            });
-          });
-          EOF
-        fi
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
         
-    - name: Install test dependencies if needed
-      run: |
-        if [ ! -d "node_modules/jest" ] && [ ! -d "node_modules/mocha" ]; then
-          npm install --save-dev jest supertest
-        fi
-        
-    - name: Add test script to package.json if missing
-      run: |
-        if ! grep -q "\"test\"" package.json; then
-          npx json -I -f package.json -e 'this.scripts={...this.scripts, "test":"jest"}'
-        fi
-        
-    - name: Run linting (ESLint if available)
-      run: |
-        if [ -f node_modules/.bin/eslint ]; then
-          npx eslint . --ext .js,.jsx,.ts,.tsx --max-warnings 0
-        else
-          echo "No ESLint configured - skipping linting"
-        fi
-        
-    - name: Run security audit
-      run: npm audit --audit-level moderate || true
-      
     - name: Run tests
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GEN_AI_STUDIO_API_KEY: ${{ secrets.GEN_AI_STUDIO_API_KEY }}
+        LOG_LEVEL: 1
       run: |
-        if grep -q "\"test\"" package.json; then
-          npm test
-        else
-          echo "No test script found - creating and running basic test"
-          npx jest test/basic.test.js --passWithNoTests
-        fi
-        
-    - name: Build check
-      run: |
-        if grep -q "\"build\"" package.json; then
-          npm run build
-          echo "✅ Build completed successfully"
-        else
-          echo "No build script found - skipping build"
-        fi
-        
-    - name: Verify server starts
-      run: |
-        # Check if main server file exists and can be required
-        if [ -f "app.js" ] || [ -f "server.js" ] || [ -f "index.js" ]; then
-          echo "Testing server file import..."
-          node -e "
-            try {
-              const app = require('./app.js');
-              console.log('✅ app.js loads successfully');
-            } catch (e) {
-              try {
-                const app = require('./server.js');
-                console.log('✅ server.js loads successfully');
-              } catch (e2) {
-                try {
-                  const app = require('./index.js');
-                  console.log('✅ index.js loads successfully');
-                } catch (e3) {
-                  console.log('⚠️  No main server file found or has errors');
-                }
-              }
-            }
-          "
-        else
-          echo "⚠️  No main server file found (app.js, server.js, or index.js)"
-        fi
-
-  integration-test:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    needs: test
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-        
-    - name: Install dependencies
-      run: npm ci
-      
-    - name: Start server and test API
-      run: |
-        # Start server in background
-        npm start &
-        SERVER_PID=$!
-        
-        # Wait for server to start
-        sleep 10
-        
-        # Test basic endpoints
-        echo "Testing health endpoint..."
-        curl -f http://localhost:8080/health || curl -f http://localhost:3000/health || echo "Health endpoint not available"
-        
-        # Kill the server
-        kill $SERVER_PID 2>/dev/null || true
+        python -m unittest discover tests -v

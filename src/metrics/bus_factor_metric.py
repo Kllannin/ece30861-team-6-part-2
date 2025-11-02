@@ -1,4 +1,4 @@
-import os
+'''import os
 import time
 import re
 from typing import Tuple
@@ -61,5 +61,35 @@ def bus_factor_metric(filename: str, verbosity: int, log_queue) -> Tuple[float, 
     if verbosity >= 1: # Informational
         log_queue.put(f"[{pid}] [INFO] Finished calculation. Score={score:.2f}, Time={time_taken:.3f}s")
 
-    return score, time_taken
+    return score, time_taken'''
 
+from typing import Tuple
+import os, time, re
+
+def bus_factor_metric(readme_path: str, verbosity: int, log_queue) -> Tuple[float, float]:
+    """Return (score in [0,1], elapsed_seconds)."""
+    pid = os.getpid()
+    t0 = time.perf_counter()
+    score = 0.0
+
+    try:
+        if verbosity >= 1:
+            log_queue.put(f"[{pid}] [INFO] Bus factor: reading {readme_path!r}")
+
+        with open(readme_path, "r", encoding="utf-8", errors="ignore") as f:
+            text = f.read().lower()
+
+        keywords = ["contributor", "contributors", "author", "authors",
+                    "team", "maintainer", "maintained by", "developed by", "credits"]
+
+        score = 1.0 if any(k in text for k in keywords) else 0.0
+
+    except Exception as e:
+        if verbosity >= 1:
+            log_queue.put(f"[{pid}] [CRITICAL ERROR] bus factor: {e}")
+        score = 0.0
+
+    dt = time.perf_counter() - t0
+    if verbosity >= 1:
+        log_queue.put(f"[{pid}] [INFO] Bus factor done in {dt:.3f}s (score={score:.2f})")
+    return score, dt

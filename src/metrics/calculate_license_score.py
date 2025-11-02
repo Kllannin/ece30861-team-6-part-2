@@ -29,62 +29,26 @@ def calculate_license_score(license_info: str, verbosity: int, log_queue) -> Tup
         # Convert to lowercase for consistent matching
         license_text = str(license_info).lower().strip() if license_info else "unknown"
 
-        # Tier 1: Highly Permissive & LGPL-2.1 Compatible (1.0)
+        # Highly Permissive & LGPL-2.1 Compatible (1.0)
         permissive_licenses = ["mit", "apache-2.0", "apache2", "apache license 2.0", 
                               "bsd-2-clause", "bsd-3-clause", "bsd-2", "bsd-3", "bsd",
-                              "unlicense", "cc0", "creative commons zero"]
+                              "unlicense", "cc0", "creative commons zero","lgpl-2.1", "lgplv2.1","mpl-2.0", "mpl2", "mozilla public license 2.0", 
+                                                        "eclipse-2.0", "eclipse public license 2.0"]
+        Med_licenses =["lgpl", "lgpl-", "lesser general public license","llama2", "gemma", "bigscience", "bigcode", "lgpl-3.0", "lgplv3", "epl-1.0", "epl-2.0"
+                       "gpl-3.0", "gplv3", "gpl", "agpl", "affero gpl","gpl-2.0", "gplv2"]
         
         if any(license in license_text for license in permissive_licenses):
             score = 1.0
             if verbosity >= 1: # Informational
                 log_queue.put(f"[{pid}] [INFO] Highly permissive license -> Score = 1.0")
 
-        # Tier 2: LGPL-2.1 Exact Match (0.9)
-        elif "lgpl-2.1" in license_text or "lgplv2.1" in license_text:
-            score = 0.9
-            if verbosity >= 1: # Informational
-                log_queue.put(f"[{pid}] [INFO] LGPL-2.1 license -> Score = 0.9")
-
-        # Tier 3: Other Permissive Licenses (0.8)
-        elif any(license in license_text for license in ["mpl-2.0", "mpl2", "mozilla public license 2.0", 
-                                                        "eclipse-2.0", "eclipse public license 2.0"]):
-            score = 0.8
-            if verbosity >= 1: # Informational
-                log_queue.put(f"[{pid}] [INFO] Permissive with conditions -> Score = 0.8")
-
-        # Tier 4: LGPL Family (0.7)
-        elif any(license in license_text for license in ["lgpl", "lgpl-", "lesser general public license"]):
-            score = 0.7
-            if verbosity >= 1: # Informational
-                log_queue.put(f"[{pid}] [INFO] LGPL family license -> Score = 0.7")
-
-        # Tier 5: Modern ML Licenses (0.6-0.7)
-        elif "openrail" in license_text:
-            score = 0.7
-            if verbosity >= 1: # Informational
-                log_queue.put(f"[{pid}] [INFO] OpenRAIL license -> Score = 0.7")
-        elif any(license in license_text for license in ["llama2", "gemma", "bigscience", "bigcode"]):
-            score = 0.6
-            if verbosity >= 1: # Informational
-                log_queue.put(f"[{pid}] [INFO] Modern ML license -> Score = 0.6")
-
-        # Tier 6: Weak Copyleft (0.6)
-        elif any(license in license_text for license in ["lgpl-3.0", "lgplv3", "epl-1.0", "epl-2.0"]):
-            score = 0.6
-            if verbosity >= 1: # Informational
-                log_queue.put(f"[{pid}] [INFO] Weak copyleft license -> Score = 0.6")
-
-        # Tier 7: Strong Copyleft (0.3-0.5)
-        elif any(license in license_text for license in ["gpl-2.0", "gplv2"]):
+        
+        elif any(license in license_text for license in Med_licenses):
             score = 0.5
             if verbosity >= 1: # Informational
-                log_queue.put(f"[{pid}] [INFO] GPL-2.0 license -> Score = 0.5")
-        elif any(license in license_text for license in ["gpl-3.0", "gplv3", "gpl", "agpl", "affero gpl"]):
-            score = 0.3
-            if verbosity >= 1: # Informational
-                log_queue.put(f"[{pid}] [INFO] Strong copyleft license -> Score = 0.3")
+                log_queue.put(f"[{pid}] [INFO] Med permissive license -> Score = 0.5")
 
-        # Tier 8: Restricted/Non-commercial (0.2)
+                
         elif any(license in license_text for license in ["non-commercial", "noncommercial", "research-only", 
                                                         "research use", "no-derivatives", "cc-by-nc",
                                                         "educational", "academic", "non-profit"]):
@@ -92,18 +56,18 @@ def calculate_license_score(license_info: str, verbosity: int, log_queue) -> Tup
             if verbosity >= 1: # Informational
                 log_queue.put(f"[{pid}] [INFO] Restricted license -> Score = 0.2")
 
-        # Tier 9: Proprietary/Closed (0.0)
+        
         elif any(license in license_text for license in ["proprietary", "closed source", "commercial", 
                                                         "all rights reserved"]):
             score = 0.0
             if verbosity >= 1: # Informational
                 log_queue.put(f"[{pid}] [INFO] Proprietary license -> Score = 0.0")
 
-        # Tier 10: Unknown/No license (0.5)
+        #  Unknown/No license (0)
         else:
-            score = 0.5
+            score = 0
             if verbosity >= 1: # Informational
-                log_queue.put(f"[{pid}] [INFO] Unknown license -> Score = 0.5")
+                log_queue.put(f"[{pid}] [INFO] Unknown license -> Score = 0")
 
     except Exception as e:
         if verbosity >= 1: # Informational

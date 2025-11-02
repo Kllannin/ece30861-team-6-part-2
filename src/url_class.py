@@ -40,8 +40,7 @@ def parse_huggingface_url(url: str) -> Tuple[str, str, str]:
     """
     parsed = urlparse(url)
     parts = parsed.path.strip("/").split("/")
-
-    # Require at least namespace and repo. Return empty strings if not present
+    ''' # Require at least namespace and repo. Return empty strings if not present
     if len(parts) < 2:
         return "", "", ""
     namespace, repo = parts[0], parts[1]
@@ -50,7 +49,21 @@ def parse_huggingface_url(url: str) -> Tuple[str, str, str]:
     # Detect a revision in URLs like `/namespace/repo/tree/<rev>`
     if len(parts) >= 4 and parts[2] == "tree":
         rev = parts[3]
-    return namespace, repo, rev
+    return namespace, repo, rev'''
+    if len(parts) >= 2:
+        namespace, repo = parts[0], parts[1]
+        rev = "main"
+        if len(parts) >= 4 and parts[2] == "tree":
+            rev = parts[3]
+        return namespace, repo, rev
+
+    if len(parts) == 1:
+        # e.g., https://huggingface.co/distilbert-base-uncased-distilled-squad
+        repo = parts[0]
+        rev = "main"
+        return "", repo, rev
+
+    return "", "", ""
 
 def parse_dataset_url(url: str) -> str:
     """

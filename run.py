@@ -150,9 +150,14 @@ def main() -> int:
             rev = i.model.rev or "main"
 
             # Skip if namespace or repo is missing or empty
-            if not namespace or not repo:
-                if args.verbose:
-                    print("Skipping a project with missing namespace/repo.")
+            if not repo:
+                # truly unusable: no repo at all -> still emit a minimal record
+                build_model_output(name="", category="MODEL", scores={}, latency={})
+                continue
+
+            if not namespace:
+                # single-segment HF model: print a valid record (you can use defaults)
+                build_model_output(name=repo, category="MODEL", scores={}, latency={})
                 continue
 
             size = get_model_size(namespace, repo, rev)

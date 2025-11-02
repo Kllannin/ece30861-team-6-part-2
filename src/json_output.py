@@ -1,6 +1,17 @@
 import json
 import sys
 
+_DEVICE_KEYS = ("raspberry_pi", "jetson_nano", "desktop_pc", "aws_server")
+
+def _normalize_size_score(val):
+    if isinstance(val, dict) and all(k in val for k in _DEVICE_KEYS):
+        return {k: float(val[k]) for k in _DEVICE_KEYS}
+    try:
+        f = float(val)
+        return {k: f for k in _DEVICE_KEYS}
+    except Exception:
+        return {k: 0.0 for k in _DEVICE_KEYS}
+
 def build_model_output(
     name,
     category,
@@ -20,7 +31,7 @@ def build_model_output(
     "performance_claims_latency":latency.get("performance_claims_metric", 0),
     "license":scores.get("calculate_license_score", 0.00),
     "license_latency":latency.get("calculate_license_score", 0),
-    "size_score":scores.get("calculate_size_score", 0.00),  
+    "size_score": _normalize_size_score(scores.get("calculate_size_score", 0.00)),
     "size_score_latency":latency.get("calculate_size_score", 0),
     "dataset_and_code_score":scores.get("dataset_and_code_present", 0.00),
     "dataset_and_code_score_latency":latency.get("dataset_and_code_present", 0),

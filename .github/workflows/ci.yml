@@ -29,10 +29,9 @@ jobs:
       run: |
         echo "https://huggingface.co/example/model" > tests/fake_target.txt
         
-        - name: Run tests
+    - name: Run tests
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # This one is automatic
-        # Remove GEN_AI_STUDIO_API_KEY if not needed
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         LOG_LEVEL: 1
       run: |
         python -m unittest discover tests -v

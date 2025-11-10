@@ -46,13 +46,12 @@ def get_tracks():
     return {
         "plannedTracks": [
             "Performance track",
-            # Add "Access control track" here later if you decide to do it:
-            # "Access control track",
+            "Access control track"
         ]
     }
 
 @app.delete("/reset")
-def reset_registry(x_authorization: str = Header(..., alias="X-Authorization")):
+def reset_registry(x_authorization: str | None = Header(None, alias="X-Authorization")):
     # You can later check x_authorization value if you want,
     # but for MVP we just require that it exists.
 

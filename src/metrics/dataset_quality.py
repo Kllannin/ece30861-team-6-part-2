@@ -12,7 +12,6 @@ def _remove_readonly(func, path, _):
     os.chmod(path, stat.S_IWRITE)
     func(path)
 
-
 def dataset_quality(dataset_name: str, verbosity: int, log_queue) -> Tuple[float, float]:
     """
     Evaluates the quality of a Hugging Face dataset or a GitHub repo dataset.
@@ -32,13 +31,19 @@ def dataset_quality(dataset_name: str, verbosity: int, log_queue) -> Tuple[float
     score = 0.0  # default for failures
     split: str = "train"
 
+    dataset_name = (dataset_name or "").strip()
+    if not dataset_name:
+        if verbosity >= 1 and log_queue:
+            log_queue.put(f"[{pid}] dataset_quality: no dataset provided -> score=0.0")
+        time_taken_second = time.perf_counter() - start_time
+        return score, time_taken_second
     try:
         df: pd.DataFrame = pd.DataFrame()
 
-        # --- Case 1: GitHub repo ---
+        # Case 1: GitHub repo
         if dataset_name.startswith("http") and "github.com" in dataset_name:
             tmp_dir = tempfile.mkdtemp()
-            if verbosity >= 1:
+            if verbosity >= 1 and log_queue:
                 log_queue.put(f"[{pid}] Cloning GitHub repo {dataset_name} into {tmp_dir}...")
 
             result = subprocess.run(
@@ -57,7 +62,6 @@ def dataset_quality(dataset_name: str, verbosity: int, log_queue) -> Tuple[float
                 for f in files:
                     if f.endswith((".csv", ".json", ".parquet")):
                         candidates.append(os.path.join(root, f))
-
             if not candidates:
                 raise ValueError(f"No supported dataset file found in GitHub repo: {dataset_name}")
 
@@ -79,7 +83,7 @@ def dataset_quality(dataset_name: str, verbosity: int, log_queue) -> Tuple[float
                 if verbosity >= 1 and log_queue:
                     log_queue.put(f"[{pid}] [WARNING] Failed to cleanup {tmp_dir}: {e}")
 
-        # --- Case 2: Hugging Face dataset ---
+        # Case 2: Hugging Face dataset
         else:
             if verbosity >= 1 and log_queue:
                 log_queue.put(f"[{pid}] Loading dataset '{dataset_name}' (split: {split})...")
@@ -91,8 +95,8 @@ def dataset_quality(dataset_name: str, verbosity: int, log_queue) -> Tuple[float
             hf_dataset = load_dataset(dataset_name, split=split)
             df = hf_dataset.to_pandas()
 
-        # --- Run quality checks ---
-        if verbosity >= 1:
+        # Run quality checks
+        if verbosity >= 1 and log_queue:
             log_queue.put(f"[{pid}] Dataset loaded with {len(df)} rows. Starting checks...")
 
         passed_checks: List[str] = []
@@ -119,34 +123,33 @@ def dataset_quality(dataset_name: str, verbosity: int, log_queue) -> Tuple[float
 
         score = len(passed_checks) / len(checks) if checks else 0.0
 
-        if verbosity >= 1:
+        if verbosity >= 1 and log_queue:
             log_queue.put(
                 f"[{pid}] Quality check complete. "
                 f"Passed: {len(passed_checks)}/{len(checks)}. Score: {score:.2f}"
             )
-        if verbosity >= 2 and failed_checks:
+        if verbosity >= 2 and failed_checks and log_queue:
             log_queue.put(f"[{pid}] [DEBUG] Failed checks: {', '.join(failed_checks)}")
 
     except Exception as e:
-        if verbosity > 0:
+        if verbosity > 0 and log_queue:
             log_queue.put(f"[{pid}] [CRITICAL ERROR] evaluating dataset '{dataset_name}': {e}")
         score = 0.0
 
-    end_time = time.perf_counter()
-    time_taken = end_time - start_time
-    return score, time_taken
+    time_taken_second = time.perf_counter() - start_time
+    return score, time_taken_second
 
 if __name__ == "__main__":
     from queue import SimpleQueue
     log_queue = SimpleQueue()
 
-    # --- Hugging Face test ---
+    # Hugging Face test
     hf_dataset = "imdb"  # HF datasets expect just the repo name
     hf_score, hf_time = dataset_quality(hf_dataset, verbosity=1, log_queue=log_queue)
     print(f"Hugging Face dataset test ({hf_dataset}):")
     print(f"  Score: {hf_score:.2f}, Time: {hf_time:.2f}s\n")
 
-    # --- GitHub test ---
+    # GitHub test
     gh_dataset = "https://github.com/zalandoresearch/fashion-mnist"
     gh_score, gh_time = dataset_quality(gh_dataset, verbosity=1, log_queue=log_queue)
     print(f"GitHub dataset test ({gh_dataset}):")

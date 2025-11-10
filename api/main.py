@@ -1,16 +1,14 @@
 # MVP backend
-from fastapi import FastAPI, UploadFile, File, Header, Query, HTTPException
-import uuid, os, re
+from fastapi import FastAPI, UploadFile, File, Header
+import uuid, os, shutil
 
 app = FastAPI(title="MVP Registry")
-
-STORAGE_DIR = "/storage"        # use container-level folder (not relative)
-os.makedirs(STORAGE_DIR, exist_ok=True)
 
 # In-memory "database"
 ARTIFACTS = {}
 
 # Make sure a storage folder exists
+os.makedirs("storage", exist_ok=True)
 
 @app.get("/health")
 def health():
@@ -23,23 +21,43 @@ async def upload_model(file: UploadFile = File(...)):
 
     # Save zip bytes to storage/<id>.zip
     data = await file.read()
-
-    file_path = os.path.join(STORAGE_DIR, f"{artifact_id}.zip")
-
-    with open(file_path, "wb") as f:
+    with open(f"storage/{artifact_id}.zip", "wb") as f:
         f.write(data)
-
-    #with open(f"storage/{artifact_id}.zip", "wb") as f:
-    #    f.write(data)
 
     record = {
         "id": artifact_id,
         "filename": file.filename,
         "net_score": None # to be implemented
     }
-
     ARTIFACTS[artifact_id] = record
     return record
+
+@app.get("/artifacts")
+def list_artifacts(
+    regex: str | None = Query(None, description="Optional regex over filename"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200)
+):
+    """
+    Enumerate artifacts:
+    - If regex is given, filter by regex over filename (later also model card text).
+    - Support offset + limit so it scales to millions of models.
+    """
+    items = list(ARTIFACTS.values())
+
+    if regex:
+        pattern = re.compile(regex, re.IGNORECASE)
+        items = [a for a in items if pattern.search(a["filename"])]
+
+    total = len(items)
+    page = items[offset: offset + limit]
+
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "items": page,
+    }
 
 @app.get("/artifacts/{artifact_id}")
 def get_artifact(artifact_id: str):
@@ -55,34 +73,24 @@ def get_tracks():
     return {
         "plannedTracks": [
             "Performance track",
-            "Access control track"
+            #"Access control track"
         ]
     }
 
 @app.delete("/reset")
 def reset_registry(x_authorization: str | None = Header(None, alias="X-Authorization")):
-    """Clear registry state and wipe /storage directory."""
-    # 1) Clear in-memory registry
+    # You can later check x_authorization value if you want,
+    # but for MVP we just require that it exists.
+
+    # 1) Clear in-memory artifacts
     ARTIFACTS.clear()
 
-    # 2) Delete /storage and all contents
-    if os.path.exists(STORAGE_DIR):
-        shutil.rmtree(STORAGE_DIR)
+    # 2) Delete the storage directory if it exists
+    if os.path.exists("storage"):
+        shutil.rmtree("storage")
 
-    # 3) Recreate clean /storage folder
-    os.makedirs(STORAGE_DIR, exist_ok=True)
+    # 3) Recreate an empty storage directory
+    os.makedirs("storage", exist_ok=True)
 
-    # 4) Return success
-    return {"status": "reset"}
-
-@app.post("/system/reset")
-def system_reset(x_authorization: str | None = Header(None, alias="X-Authorization")):
-    """Alias for system reset used by tests; mirrors /reset behavior."""
-    ARTIFACTS.clear()
-
-    if os.path.exists(STORAGE_DIR):
-        shutil.rmtree(STORAGE_DIR)
-
-    os.makedirs(STORAGE_DIR, exist_ok=True)
 
     return {"status": "reset"}

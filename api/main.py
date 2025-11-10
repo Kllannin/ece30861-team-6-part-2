@@ -8,7 +8,7 @@ app = FastAPI(title="MVP Registry")
 ARTIFACTS = {}
 
 # Make sure a storage folder exists
-#os.makedirs("storage", exist_ok=True)
+os.makedirs("storage", exist_ok=True)
 
 @app.get("/health")
 def health():
@@ -46,7 +46,7 @@ def get_tracks():
     return {
         "plannedTracks": [
             "Performance track",
-            "Access control track"
+            #"Access control track"
         ]
     }
 
@@ -63,7 +63,7 @@ def reset_registry(x_authorization: str | None = Header(None, alias="X-Authoriza
         shutil.rmtree("storage")
 
     # 3) Recreate an empty storage directory
-    #os.makedirs("storage", exist_ok=True)
+    os.makedirs("storage", exist_ok=True)
 
 
     return {"status": "reset"}

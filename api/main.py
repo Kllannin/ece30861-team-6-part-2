@@ -29,9 +29,6 @@ async def upload_model(file: UploadFile = File(...)):
     with open(file_path, "wb") as f:
         f.write(data)
 
-    #with open(f"storage/{artifact_id}.zip", "wb") as f:
-    #    f.write(data)
-
     record = {
         "id": artifact_id,
         "filename": file.filename,

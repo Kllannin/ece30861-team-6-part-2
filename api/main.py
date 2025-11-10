@@ -4,11 +4,13 @@ import uuid, os, shutil
 
 app = FastAPI(title="MVP Registry")
 
+STORAGE_DIR = "/storage"        # use container-level folder (not relative)
+os.makedirs(STORAGE_DIR, exist_ok=True)
+
 # In-memory "database"
 ARTIFACTS = {}
 
 # Make sure a storage folder exists
-os.makedirs("storage", exist_ok=True)
 
 @app.get("/health")
 def health():
@@ -21,14 +23,21 @@ async def upload_model(file: UploadFile = File(...)):
 
     # Save zip bytes to storage/<id>.zip
     data = await file.read()
-    with open(f"storage/{artifact_id}.zip", "wb") as f:
+
+    file_path = os.path.join(STORAGE_DIR, f"{artifact_id}.zip")
+
+    with open(file_path, "wb") as f:
         f.write(data)
+
+    #with open(f"storage/{artifact_id}.zip", "wb") as f:
+    #    f.write(data)
 
     record = {
         "id": artifact_id,
         "filename": file.filename,
         "net_score": None # to be implemented
     }
+
     ARTIFACTS[artifact_id] = record
     return record
 
@@ -46,24 +55,22 @@ def get_tracks():
     return {
         "plannedTracks": [
             "Performance track",
-            #"Access control track"
+            "Access control track"
         ]
     }
 
 @app.delete("/reset")
 def reset_registry(x_authorization: str | None = Header(None, alias="X-Authorization")):
-    # You can later check x_authorization value if you want,
-    # but for MVP we just require that it exists.
-
-    # 1) Clear in-memory artifacts
+    """Clear registry state and wipe /storage directory."""
+    # 1) Clear in-memory registry
     ARTIFACTS.clear()
 
-    # 2) Delete the storage directory if it exists
-    if os.path.exists("storage"):
-        shutil.rmtree("storage")
+    # 2) Delete /storage and all contents
+    if os.path.exists(STORAGE_DIR):
+        shutil.rmtree(STORAGE_DIR)
 
-    # 3) Recreate an empty storage directory
-    os.makedirs("storage", exist_ok=True)
+    # 3) Recreate clean /storage folder
+    os.makedirs(STORAGE_DIR, exist_ok=True)
 
-
+    # 4) Return success
     return {"status": "reset"}

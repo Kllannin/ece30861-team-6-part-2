@@ -239,6 +239,8 @@ async def get_artifact(
 
     if stored["metadata"]["type"] != artifact_type:
         raise HTTPException(status_code=400, detail="Artifact type mismatch")
+    
+    raise HTTPException(status_code=400, detail="Artifact type mismatch")
 
     return {
         "metadata": stored["metadata"],

@@ -218,7 +218,6 @@ def list_artifacts(
         )
     return results
 
-'''
 @app.get(
     "/artifacts/{artifact_type}/{id}",
     response_model=Artifact,
@@ -245,47 +244,7 @@ async def get_artifact(
     return {
         "metadata": stored["metadata"],
         "data": stored["data"],
-    } '''
-@app.get(
-    "/artifacts/{artifact_type}/{id}",
-    response_model=Artifact,
-    tags=["baseline"],
-)
-async def get_artifact(
-    artifact_type: str,
-    id: str,
-    x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
-):
-    """
-    Get full Artifact by type + id.
-
-    Baseline behavior:
-    - Ignore X-Authorization content (autograder just wants the header to exist in the spec).
-    - 400 if artifact_type is invalid.
-    - 404 if no such artifact.
-    - 400 if type doesn't match stored type.
-    """
-
-    # 1) Validate artifact_type
-    if artifact_type not in {"model", "dataset", "code"}:
-        raise HTTPException(status_code=400, detail="Invalid artifact_type")
-
-    # 2) Look up artifact
-    stored = ARTIFACTS.get(id)
-    if not stored:
-        # No such id => 404
-        raise HTTPException(status_code=404, detail="Artifact not found")
-
-    # 3) Enforce type matches
-    if stored["metadata"]["type"] != artifact_type:
-        # Treat as bad request for this type/id combo
-        raise HTTPException(status_code=400, detail="Artifact type mismatch")
-
-    # 4) Success
-    return {
-        "metadata": stored["metadata"],
-        "data": stored["data"],
-    }
+    } 
 
 @app.put(
     "/artifacts/{artifact_type}/{id}",

@@ -446,74 +446,13 @@ async def artifact_by_regex(
 # --------------------------------------------------------------------
 
 
-DEFAULT_USERNAME = "ece30861defaultadminuser"
-DEFAULT_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
-'''
-@app.put("/authenticate", response_model=str, tags=["non-baseline"])
-async def authenticate(body: Dict[str, Any] = Body(...)):
-    # 1) Basic shape validation -> 400 if malformed
-    if "user" not in body or "secret" not in body:
-        raise HTTPException(status_code=400, detail="Missing user or secret")
-
-    user = body["user"]
-    secret = body["secret"]
-
-    if "name" not in user or "is_admin" not in user or "password" not in secret:
-        raise HTTPException(status_code=400, detail="Malformed authentication request")
-
-    username = user["name"]
-    password = secret["password"]
-
-    # 2) Check credentials -> 401 if wrong
-    if username != DEFAULT_USERNAME or password != DEFAULT_PASSWORD:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    # 3) On success, return a token STRING (not an object)
-    token = "bearer default-autograder-token"
-    return token'''
-
-DEFAULT_USERNAME = "ece30861defaultadminuser"
-DEFAULT_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
-
-# store whatever tokens we've issued
-ACTIVE_TOKENS: set[str] = set()
-
-@app.put("/authenticate", response_model=str, tags=["non-baseline"])
-async def authenticate(body: Dict[str, Any] = Body(...)):
+@app.put("/authenticate", tags=["non-baseline"])
+async def authenticate(body: Dict = Body(...)):
     """
-    Create an access token.
-
-    Expected body (per spec):
-
-    {
-      "user": {
-        "name": "ece30861defaultadminuser",
-        "is_admin": true
-      },
-      "secret": {
-        "password": "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
-      }
-    }
+    Non-baseline stub – pretend authentication succeeded and return a token.
     """
+    return "dummy"
 
-    user = body.get("user") or {}
-    secret = body.get("secret") or {}
-
-    username = user.get("name")
-    password = secret.get("password")
-
-    # 1) malformed request -> 400
-    if username is None or password is None:
-        raise HTTPException(status_code=400, detail="Malformed authentication request")
-
-    # 2) wrong credentials -> 401
-    if username != DEFAULT_USERNAME or password != DEFAULT_PASSWORD:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    # 3) success -> generate ANY token string, autograder will reuse it
-    token = "bearer " + str(uuid.uuid4())
-    ACTIVE_TOKENS.add(token)
-    return token   # important: raw string, NOT {"token": ...}
 
 @app.get("/artifact/{artifact_type}/{id}/audit", tags=["non-baseline"])
 async def get_audit_log(artifact_type: str, id: str):

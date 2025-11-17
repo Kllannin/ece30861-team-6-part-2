@@ -246,54 +246,28 @@ async def get_artifact(
         "metadata": stored["metadata"],
         "data": stored["data"],
     } '''
-AUTH_TOKEN = "bearer default-autograder-token"  # must match what /authenticate returns
+@app.get("/artifacts/{artifact_type}/{id}", response_model=Artifact)
+async def get_artifact(artifact_type: str, id: str,
+                       x_authorization: str = Header(None, alias="X-Authorization")):
 
-@app.get(
-    "/artifacts/{artifact_type}/{id}",
-    response_model=Artifact,
-    tags=["baseline"],
-)
-async def get_artifact(
-    artifact_type: str,
-    id: str,
-    x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
-):
-    """
-    Get full Artifact by type + id.
+    # Must have header
+    if not x_authorization or x_authorization not in ACTIVE_TOKENS:
+        raise HTTPException(status_code=403, detail="Authentication failed")
 
-    Behavior per spec:
-    - 400 if artifact_type is invalid (not model/dataset/code)
-    - 403 if auth token is missing or wrong
-    - 404 if artifact does not exist
-    - 200 with Artifact if everything is valid
-    """
-
-    # 1) Validate artifact_type – 400 if malformed/invalid
+    # Validate artifact_type
     if artifact_type not in {"model", "dataset", "code"}:
         raise HTTPException(status_code=400, detail="Invalid artifact_type")
 
-    # 2) Enforce auth – 403 if missing/invalid
-    if x_authorization != AUTH_TOKEN:
-        raise HTTPException(
-            status_code=403,
-            detail="Authentication failed due to invalid or missing AuthenticationToken.",
-        )
-
-    # 3) Look up artifact – 404 if id not found
+    # Retrieve artifact
     stored = ARTIFACTS.get(id)
     if not stored:
         raise HTTPException(status_code=404, detail="Artifact not found")
 
-    # 4) Type mismatch – from caller’s POV this id+type combo doesn’t exist → 404
+    # Type mismatch → autograder expects 404
     if stored["metadata"]["type"] != artifact_type:
         raise HTTPException(status_code=404, detail="Artifact not found")
 
-    # 5) Success – return full artifact
-    return {
-        "metadata": stored["metadata"],
-        "data": stored["data"],
-    }
-
+    return stored
 
 @app.put(
     "/artifacts/{artifact_type}/{id}",
@@ -497,7 +471,7 @@ async def artifact_by_regex(
 
 DEFAULT_USERNAME = "ece30861defaultadminuser"
 DEFAULT_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
-
+'''
 @app.put("/authenticate", response_model=str, tags=["non-baseline"])
 async def authenticate(body: Dict[str, Any] = Body(...)):
     # 1) Basic shape validation -> 400 if malformed
@@ -519,7 +493,20 @@ async def authenticate(body: Dict[str, Any] = Body(...)):
 
     # 3) On success, return a token STRING (not an object)
     token = "bearer default-autograder-token"
-    return token
+    return token'''
+
+ACTIVE_TOKENS = set()
+@app.put("/authenticate")
+async def authenticate(body: dict = Body(...)):
+    user = body.get("user", {})
+    secret = body.get("secret", {})
+
+    if user.get("name") == DEFAULT_USERNAME and secret.get("password") == DEFAULT_PASSWORD:
+        token = "bearer-" + str(uuid.uuid4())   # any string is fine
+        ACTIVE_TOKENS.add(token)
+        return token   # MUST return a raw string
+    else:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
 
 
 @app.get("/artifact/byName/{name}", tags=["non-baseline"])

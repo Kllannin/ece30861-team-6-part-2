@@ -476,14 +476,46 @@ async def artifact_by_regex(
 
 
 DEFAULT_USERNAME = "ece30861defaultadminuser"
-DEFAULT_PASSWORD = "correcthorsebatterystaple123(!__+@**(A;DROP TABLE packages"
+DEFAULT_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
 
-@app.put("/authenticate", tags=["non-baseline"])
-async def authenticate(body: Optional[Dict[str, Any]] = Body(None)):
-    # For the autograder, we don't care what they send.
-    # Just return a token and HTTP 200.
-    return {"token": "dummy-token"}
+@app.put("/authenticate", response_model=str, tags=["non-baseline"])
+async def authenticate(body: Dict[str, Any] = Body(...)):
+    """
+    Create an access token.
 
+    Expected body (from the OpenAPI spec):
+
+    {
+      "user": {
+        "name": "ece30861defaultadminuser",
+        "is_admin": true
+      },
+      "secret": {
+        "password": "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
+      }
+    }
+    """
+
+    # 1) Basic shape validation -> 400 if malformed
+    if "user" not in body or "secret" not in body:
+        raise HTTPException(status_code=400, detail="Missing user or secret")
+
+    user = body["user"]
+    secret = body["secret"]
+
+    if "name" not in user or "is_admin" not in user or "password" not in secret:
+        raise HTTPException(status_code=400, detail="Malformed authentication request")
+
+    username = user["name"]
+    password = secret["password"]
+
+    # 2) Check credentials -> 401 if wrong
+    if username != DEFAULT_USERNAME or password != DEFAULT_PASSWORD:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # 3) On success, return a token STRING (not an object)
+    token = "bearer default-autograder-token"
+    return token
 
 
 @app.get("/artifact/byName/{name}", tags=["non-baseline"])

@@ -1,7 +1,28 @@
 # MVP backend
-from fastapi import FastAPI, UploadFile, File, Header, Query
+from fastapi import FastAPI, UploadFile, File, Header, Query, HTTPException, Body, Request
+from typing import Optional, List, Dict, Any
 import uuid, os, shutil, re
+from urllib.parse import urlparse
 from src.download_model import get_router as get_download_router
+from pydantic import BaseModel
+
+# Pydantic models for artifact operations
+class ArtifactMetadata(BaseModel):
+    name: str
+    id: str
+    type: str
+
+class ArtifactData(BaseModel):
+    url: str
+    download_url: str = None
+
+class Artifact(BaseModel):
+    metadata: ArtifactMetadata
+    data: ArtifactData
+
+class ArtifactQuery(BaseModel):
+    name: str = "*"
+    types: List[str] = []
 
 app = FastAPI(title="MVP Registry")
 

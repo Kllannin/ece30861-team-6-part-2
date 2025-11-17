@@ -73,9 +73,8 @@ def _stream_local_file(path: str) -> Generator[bytes, None, None]:
 
 
 def _stream_zip_member(zip_path: str, member_name: str) -> Generator[bytes, None, None]:
-    if not os.path.exists(zip_path):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archive not found")
-
+    """Stream a specific file from within a ZIP archive.
+    Note: Caller must validate member exists before calling this function."""
     z = zipfile.ZipFile(zip_path, "r")
     try:
         with z.open(member_name, "r") as member:
@@ -84,8 +83,6 @@ def _stream_zip_member(zip_path: str, member_name: str) -> Generator[bytes, None
                 if not chunk:
                     break
                 yield chunk
-    except KeyError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Member '{member_name}' not found in archive")
     finally:
         z.close()
 
@@ -139,9 +136,19 @@ def download_artifact(
     local_zip = os.path.join("storage", f"{artifact_id}.zip")
 
     if part:
-        # stream a specific member from the archive
+        # Validate member exists BEFORE creating StreamingResponse
+        if not os.path.exists(local_zip):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archive not found")
+        
+        try:
+            with zipfile.ZipFile(local_zip, "r") as z:
+                if part not in z.namelist():
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Member '{part}' not found in archive")
+        except zipfile.BadZipFile:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid ZIP archive")
+        
+        # Member exists, now stream it
         gen = _stream_zip_member(local_zip, part)
-        # Attempt to set a sensible content type based on filename
         return StreamingResponse(gen, media_type="application/octet-stream")
     else:
         # stream the archive file itself

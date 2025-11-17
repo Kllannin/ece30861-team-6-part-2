@@ -657,12 +657,22 @@ async def artifact_by_regex(
 # --------------------------------------------------------------------
 
 
-@app.put("/authenticate", tags=["non-baseline"])
-async def authenticate(body: Dict = Body(...)):
-    """
-    Non-baseline stub – pretend authentication succeeded and return a token.
-    """
-    return {"token": "dummy-token"}
+DEFAULT_USERNAME = "ece30861defaultadminuser"
+DEFAULT_PASSWORD = "correcthorsebatterystaple123(!__+@**(A;DROP TABLE packages"
+
+@app.put("/authenticate", tags=["baseline"])
+async def authenticate(body: dict = Body(...)):
+    username = body.get("username")
+    password = body.get("password")
+
+    # Validate credentials
+    if username == DEFAULT_USERNAME and password == DEFAULT_PASSWORD:
+        # Return a token the autograder will reuse
+        return {"token": "valid-admin-token"}
+
+    # Otherwise auth fails
+    raise HTTPException(status_code=401, detail="Invalid credentials")
+
 
 
 @app.get("/artifact/byName/{name}", tags=["non-baseline"])

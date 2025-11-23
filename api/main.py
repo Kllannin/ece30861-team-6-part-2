@@ -2,6 +2,8 @@
 
 from fastapi import FastAPI, UploadFile, File, Header, HTTPException, Body,Request
 from pydantic import BaseModel
+from fastapi.responses import PlainTextResponse
+import time
 from typing import List, Dict, Optional, Any
 import uuid
 import os
@@ -217,6 +219,9 @@ def list_artifacts(
             }
         )
     return results
+
+VALID_ARTIFACT_TYPES = {"model", "dataset", "code"}
+
 @app.get(
     "/artifacts/{artifact_type}/{id}",
     response_model=Artifact,
@@ -225,23 +230,47 @@ def list_artifacts(
 async def get_artifact(
     artifact_type: str,
     id: str,
-    x_authorization: str = Header(..., alias="X-Authorization"),
+    x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
 ):
     """
-    Get full Artifact by type + id.
+    GET /artifacts/{artifact_type}/{id}
 
-    We *do* require X-Authorization here so the Access Control
-    track can see a protected endpoint.
+    - Requires a valid X-Authorization: 'bearer <token>'
+    - 200: returns { metadata, data } with data.url required
+    - 400: invalid artifact_type or malformed/invalid id
+    - 403: invalid/missing AuthenticationToken (via validate_token)
+    - 404: artifact does not exist
     """
+
+    # 1) Validate token (403 if missing/invalid)
+    validate_token(x_authorization)
+
+    # 2) Validate artifact_type
+    if artifact_type not in VALID_ARTIFACT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid artifact_type '{artifact_type}'. Must be one of {sorted(VALID_ARTIFACT_TYPES)}.",
+        )
+
+    # 3) Validate id (spec says "string", so here we just ensure it's non-empty)
+    if not id:
+        raise HTTPException(status_code=400, detail="Invalid id: must be a non-empty string.")
+
+    # 4) Lookup artifact in in-memory store
     stored = ARTIFACTS.get(id)
     if not stored:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+        raise HTTPException(status_code=404, detail="Artifact does not exist.")
 
+    # 5) Ensure type matches path param
     if stored["metadata"]["type"] != artifact_type:
-        raise HTTPException(status_code=400, detail="Artifact type mismatch")
-    
-    raise HTTPException(status_code=403, detail="Artifact type mismatch")
+        raise HTTPException(status_code=400, detail="Artifact type mismatch.")
 
+    # 6) Ensure url is present (spec: url is required)
+    data = stored.get("data") or {}
+    if not data.get("url"):
+        raise HTTPException(status_code=400, detail="Artifact data missing required 'url' field.")
+
+    # 7) Return full artifact
     return {
         "metadata": stored["metadata"],
         "data": stored["data"],
@@ -447,12 +476,115 @@ async def artifact_by_regex(
 # --------------------------------------------------------------------
 
 
-@app.put("/authenticate", tags=["non-baseline"])
-async def authenticate(body: Dict = Body(...)):
+# -------------------------
+# CONSTANTS
+# -------------------------
+
+DEFAULT_ADMIN_NAME = "ece30861defaultadminuser"
+DEFAULT_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
+TOKEN_TTL_SECONDS = 10 * 60 * 60   # 10 hours
+TOKEN_MAX_CALLS = 1000             # 1000 uses
+
+
+# -------------------------
+# TOKEN STORE
+# -------------------------
+
+class TokenInfo(BaseModel):
+    username: str
+    is_admin: bool
+    expires_at: float
+    remaining_calls: int
+
+token_store: Dict[str, TokenInfo] = {}  # token -> info
+
+
+def create_token(username: str, is_admin: bool) -> str:
+    token = str(uuid.uuid4())
+    token_store[token] = TokenInfo(
+        username=username,
+        is_admin=is_admin,
+        expires_at=time.time() + TOKEN_TTL_SECONDS,
+        remaining_calls=TOKEN_MAX_CALLS
+    )
+    return token
+
+
+# -------------------------
+# REQUEST BODY MODELS
+# -------------------------
+
+class AuthUser(BaseModel):
+    name: str
+    is_admin: bool
+
+class AuthSecret(BaseModel):
+    password: str
+
+class AuthRequest(BaseModel):
+    user: AuthUser
+    secret: AuthSecret
+
+
+# -------------------------
+# /authenticate ENDPOINT
+# -------------------------
+
+@app.put("/authenticate")
+def authenticate(req: AuthRequest):
     """
-    Non-baseline stub – pretend authentication succeeded and return a token.
+    PUT /authenticate
+    Creates a token and returns:   bearer <token>
     """
-    return "dummy"
+
+    # Validate username
+    if req.user.name != DEFAULT_ADMIN_NAME:
+        raise HTTPException(status_code=401, detail="Invalid user or password.")
+
+    # Validate password
+    if req.secret.password != DEFAULT_ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Invalid user or password.")
+
+    # Create a token
+    token = create_token(
+        username=req.user.name,
+        is_admin=True   # default admin is always admin
+    )
+
+    # Spec requires plain text: "bearer <token>"
+    return PlainTextResponse(f"bearer {token}")
+
+def validate_token(x_auth: Optional[str]):
+    """
+    Validate the X-Authorization header:
+      'bearer <token>'
+
+    Raises HTTPException(403) if invalid.
+    """
+    if not x_auth:
+        raise HTTPException(status_code=403, detail="Authentication failed: missing token.")
+
+    parts = x_auth.split(" ", 1)
+    if len(parts) != 2 or parts[0] != "bearer":
+        raise HTTPException(status_code=403, detail="Authentication failed: invalid token format.")
+
+    token = parts[1].strip()
+    info = token_store.get(token)
+    if info is None:
+        raise HTTPException(status_code=403, detail="Authentication failed: unknown token.")
+
+    now = time.time()
+    if now > info.expires_at:
+        raise HTTPException(status_code=403, detail="Authentication failed: token expired.")
+
+    if info.remaining_calls <= 0:
+        raise HTTPException(status_code=403, detail="Authentication failed: token usage exceeded.")
+
+    # decrement and store back
+    info.remaining_calls -= 1
+    token_store[token] = info
+
+    return info
 
 
 @app.get("/artifact/{artifact_type}/{id}/audit", tags=["non-baseline"])

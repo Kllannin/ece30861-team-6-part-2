@@ -227,67 +227,26 @@ def list_artifacts(
 async def get_artifact(
     artifact_type: str,
     id: str,
-    x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
+    x_authorization: str = Header(..., alias="X-Authorization"),
 ):
     """
-    GET /artifacts/{artifact_type}/{id}
+    Get full Artifact by type + id.
 
-    - 200: return full Artifact { metadata, data }, with data.url required
-    - 400: invalid artifact_type or malformed id
-    - 403: (we *could* use this for invalid tokens later; for baseline we ignore)
-    - 404: artifact does not exist
+    We *do* require X-Authorization here so the Access Control
+    track can see a protected endpoint.
     """
-
-    # ---- 1. (OPTIONAL for baseline) Auth check ----
-    # For now we **do not** enforce validate_token() so that tests don't fail
-    # just because /authenticate is non-baseline and flaky.
-    # If you want, later you can do:
-    #   validate_token(x_authorization)
-    # and return 403 on failure.
-
-    # ---- 2. Validate artifact_type ----
-    if artifact_type not in {"model", "dataset", "code"}:
-        # artifact_type syntactically invalid -> 400
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid artifact_type. Must be one of: model, dataset, code.",
-        )
-
-    # ---- 3. Validate id format ----
-    # If the id string is malformed (e.g. weird symbols), 400
-    if not ID_PATTERN.fullmatch(id):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid artifact id format.",
-        )
-
-    # ---- 4. Lookup artifact ----
     stored = ARTIFACTS.get(id)
     if not stored:
-        # Well-formed id but not in registry -> 404
-        raise HTTPException(status_code=404, detail="Artifact does not exist.")
+        raise HTTPException(status_code=404, detail="Artifact not found")
 
-    # ---- 5. Type must match stored metadata ----
     if stored["metadata"]["type"] != artifact_type:
-        # The id exists, but the type in the path doesn't match -> 400
-        raise HTTPException(
-            status_code=400,
-            detail="Artifact type mismatch.",
-        )
+        raise HTTPException(status_code=400, detail="Artifact type mismatch")
 
-    # ---- 6. Ensure URL exists (spec: url is required) ----
-    data = stored.get("data") or {}
-    if "url" not in data or not data["url"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Artifact data missing required 'url' field.",
-        )
-
-    # ---- 7. Return Artifact (FastAPI will enforce response_model) ----
     return {
         "metadata": stored["metadata"],
         "data": stored["data"],
     }
+
 
 @app.put(
     "/artifacts/{artifact_type}/{id}",

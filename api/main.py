@@ -447,11 +447,17 @@ async def artifact_by_regex(
 # Non-baseline extras (stubs)
 # --------------------------------------------------------------------
 
+@app.put("/authenticate", tags=["non-baseline"])
+async def authenticate(body: Dict = Body(...)):
+    """
+    Non-baseline stub – pretend authentication succeeded and return a token.
+    """
+    return {"token": "dummy-token"}
 
 # -------------------------
 # CONSTANTS
 # -------------------------
-
+'''
 DEFAULT_ADMIN_NAME = "ece30861defaultadminuser"
 DEFAULT_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
 TOKEN_TTL_SECONDS = 10 * 60 * 60   # 10 hours
@@ -557,7 +563,7 @@ def validate_token(x_auth: Optional[str]):
     token_store[token] = info
 
     return info
-
+'''
 
 @app.get("/artifact/{artifact_type}/{id}/audit", tags=["non-baseline"])
 async def get_audit_log(artifact_type: str, id: str):

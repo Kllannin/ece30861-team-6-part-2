@@ -34,8 +34,10 @@ def dataset_quality(dataset_name: str, verbosity: int, log_queue) -> Tuple[float
 
     dataset_name = (dataset_name or "").strip()
     if not dataset_name:
+        score = 0.5 # Dataset name unknown -> 0.5
         if verbosity >= 1 and log_queue:
-            log_queue.put(f"[{pid}] dataset_quality: no dataset provided -> score=0.0")
+            log_queue.put(f"[{pid}] dataset_quality: no dataset provided; using default score={score:.2f}")
+        
         time_taken_second = time.perf_counter() - start_time
         return score, time_taken_second
     try:

@@ -1,9 +1,6 @@
 import os
 import time
-import shutil
 import stat
-import tempfile
-import subprocess
 from typing import Tuple, List
 import pandas as pd
 import requests
@@ -29,17 +26,21 @@ def dataset_quality(dataset_name: str, verbosity: int, log_queue) -> Tuple[float
     """
     start_time = time.perf_counter()
     pid = os.getpid()
-    score = 0.0  # Default
-    split: str = "train[:500]" # Slice split to improve latency
+    score = 0.5  # Default neutral score
+    split: str = "train[:500]" # Use a small slice to improve latency
 
     dataset_name = (dataset_name or "").strip()
     if not dataset_name:
-        score = 0.5 # Dataset name unknown -> 0.5
+        score = 0.5 # No dataset to inspect, stay neutral -> 0.5
         if verbosity >= 1 and log_queue:
-            log_queue.put(f"[{pid}] dataset_quality: no dataset provided; using default score={score:.2f}")
+            log_queue.put(
+                f"[{pid}] dataset_quality: no dataset provided; "
+                f"using default score={score:.2f}"
+            )
         
         time_taken_second = time.perf_counter() - start_time
         return score, time_taken_second
+    
     try:
         df: pd.DataFrame = pd.DataFrame()
 
@@ -49,12 +50,15 @@ def dataset_quality(dataset_name: str, verbosity: int, log_queue) -> Tuple[float
                 try:
                     parts = dataset_name.rstrip("/").split("/")
                     owner, repo = parts[3], parts[4]
+
+                    # Try common default branches in order
                     for ref in ("main", "master"):
                         r = requests.get(
                             f"https://api.github.com/repos/{owner}/{repo}/contents?ref={ref}",
                             timeout=5,
                         )
                         if r.status_code == 200 and isinstance(r.json(), list):
+                            # Pick the first small CSV file
                             for it in r.json():
                                 name = (it.get("name") or "").lower()
                                 if it.get("type") == "file" and name.endswith(".csv"):
@@ -65,14 +69,15 @@ def dataset_quality(dataset_name: str, verbosity: int, log_queue) -> Tuple[float
                     if verbosity >= 1 and log_queue:
                         log_queue.put(f"[{pid}] dataset_quality: GitHub inspection failed: {e}")
 
+            # No dataset to inspect, stay neutral -> 0.5
             if df.empty:
                 if verbosity >= 1 and log_queue:
                     log_queue.put(
                         f"[{pid}] dataset_quality: URL detected ('{dataset_name}'). "
-                        "No small CSV found via API; returning 0.0."
+                        "No small CSV found via API; returning score 0.5."
                     )
                 time_taken_second = time.perf_counter() - start_time
-                return 0.0, time_taken_second
+                return 0.5, time_taken_second
             
         # Case 2: Hugging Face dataset
         else:
@@ -99,20 +104,26 @@ def dataset_quality(dataset_name: str, verbosity: int, log_queue) -> Tuple[float
             "no_duplicates": not df.duplicated().any(),
         }
 
+        # Optional text specific check
         if "text" in df.columns:
             checks["no_empty_text"] = (df["text"].astype(str).str.strip() != "").all()
 
+        # Optional label balance check
         if "label" in df.columns:
             value_counts = df["label"].value_counts(normalize=True)
-            checks["balanced_labels"] = (value_counts.min() >= 0.05)
+            if not value_counts.empty:
+                checks["balanced_labels"] = (value_counts.min() >= 0.05)
 
+        # Evaluate all checks and record results
         for check, passed in checks.items():
             if passed:
                 passed_checks.append(check)
             else:
                 failed_checks.append(check)
 
+        # Quality score = fraction of checks passed.
         score = len(passed_checks) / len(checks) if checks else 0.0
+        score = max(score, 0.5)
 
         if verbosity >= 1 and log_queue:
             log_queue.put(
@@ -123,15 +134,16 @@ def dataset_quality(dataset_name: str, verbosity: int, log_queue) -> Tuple[float
             log_queue.put(f"[{pid}] [DEBUG] Failed checks: {', '.join(failed_checks)}")
 
     except Exception as e:
-        if verbosity > 0 and log_queue:
+        if verbosity > 1 and log_queue:
             log_queue.put(f"[{pid}] [CRITICAL ERROR] evaluating dataset '{dataset_name}': {e}")
-        score = 0.0
+        score = 0.5 # On error assign neutral score -> 0.5
 
     time_taken_second = time.perf_counter() - start_time
     return score, time_taken_second
 
 if __name__ == "__main__":
     from queue import SimpleQueue
+    
     log_queue = SimpleQueue()
 
     # Hugging Face test

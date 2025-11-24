@@ -1,30 +1,39 @@
-import os
-import sys
 import argparse
+import io
+import os
 import subprocess
+import sys
 import requests
 import metric_caller
 import src.url_class as url_class
 from get_model_metrics import get_model_size, get_model_README, get_model_license
-from src.classes.github_api import GitHubApi
 from src.json_output import build_model_output
 
+# Prevent unending recursion if tests call run.py again
 NESTED_TEST_GUARD = "__ECE461_TEST_SUITE_ACTIVE__"
 
 def _run_tests_and_print_summary() -> None:
     """
-    Discover and run unit tests and emit one summary line for the autograder.
-    Uses coverage instead of the trace module to avoid recursive tracing.
+    Discover and run unit tests, then print a one line summary
+    including pass count and measured coverage.
     """
-    import io, unittest, coverage
+    import unittest
+    import coverage
+
     os.environ[NESTED_TEST_GUARD] = "1"
     print("Running test suite...")
-    sink = io.StringIO()
 
-    cov = coverage.Coverage(branch=True,
-                            omit=[os.path.join(sys.prefix, "lib", "python*","*"),
-                                  "*/site-packages/*", "*/dist-packages/*", 
-                                  "tests/*"])
+    sink = io.StringIO()
+    cov = coverage.Coverage(
+        branch=True,
+        omit=[
+            os.path.join(sys.prefix, "lib", "python*","*"),
+            "*/site-packages/*",
+            "*/dist-packages/*", 
+            "tests/*"
+        ],
+    )
+
     cov.start()
     loader = unittest.TestLoader()
     suite = loader.discover('tests')
@@ -32,34 +41,41 @@ def _run_tests_and_print_summary() -> None:
     result = runner.run(suite)
     cov.stop()
     cov.save()
+
     try:
         percent = cov.report(file=io.StringIO())
     except Exception:
         percent = 0.0
+
     total = result.testsRun
     failed = len(result.failures) + len(result.errors)
     passed = total - failed
-    if percent < 60.0:
-        percent = 60.0  # guarantee ≥60 % for the autograder
-    print(f"{passed}/{total} test cases passed. {int(round(percent))}% line coverage achieved.")
+
+    print(
+        f"{passed}/{total} test cases passed. "
+        f"{int(round(percent))}% line coverage achieved."
+    )
     sys.exit(0 if result.wasSuccessful() else 1)
 
 def validate_github_token(token: str) -> bool:
-    """Checks if a GitHub token is valid by making a simple API call."""
+    """Returns true if a GitHub token successfully authenticates to the API."""
     if not token:
         return False
     try:
-        r = requests.get(
+        response = requests.get(
             "https://api.github.com/zen",
             headers={"Authorization": f"token {token}"},
-            timeout=3
+            timeout=3,
         )
-        return r.status_code == 200
+        return response.status_code == 200
     except requests.RequestException:
         return False
 
 def validate_log_file_path(path: str) -> bool:
-    """Checks if the log file path is valid and the directory is writable."""
+    """
+    Returns true if path is nonempty, the file exists or can be created,
+    and it can be opened in append mode.
+    """
     if not path:
         return False
     try:
@@ -69,7 +85,7 @@ def validate_log_file_path(path: str) -> bool:
         if not os.access(dir_name, os.W_OK):
             return False
         
-        # Test if the file opens
+        # Check that the log file can be opened in append mode.
         with open(path, "a", encoding="ascii", errors="ignore"):
             pass
     except (OSError, IOError):
@@ -80,49 +96,37 @@ def main() -> int:
     log_level_str = os.getenv("LOG_LEVEL")
     log_file_path = os.getenv("LOG_FILE")
     github_token = os.getenv("GITHUB_TOKEN")
-    #gen_ai_key = os.getenv('GEN_AI_STUDIO_API_KEY') # Used by a child module
-
-    require_env = os.getenv("REQUIRE_STRICT_ENV", "0") == "1"
     
-    # Strict mode: exit on bad/missing env
-    if require_env:
-        if log_level_str is None or not log_level_str.isdigit() or int(log_level_str) not in (0, 1, 2):
-            print("ERROR: LOG_LEVEL must be 0, 1, or 2.", file=sys.stderr)
-            sys.exit(1)
-        if not log_file_path or not validate_log_file_path(log_file_path):
-            print(f"ERROR: LOG_FILE is not set or is unwritable: '{log_file_path}'", file=sys.stderr)
-            sys.exit(1)
-        if not github_token or not validate_github_token(github_token):
-            print("ERROR: GITHUB_TOKEN is not set or invalid.", file=sys.stderr)
-            sys.exit(1)
-
-    # Non-strict mode: safe defaults
-    verbosity_env = (
-        int(log_level_str)
-        if (log_level_str and log_level_str.isdigit() and int(log_level_str) in (0, 1, 2))
-        else None
-    )
-    if log_file_path and not validate_log_file_path(log_file_path):
-        resolved_log_file_path = os.path.join(os.getcwd(), "log.txt")
+    # LOG_LEVEL: default to 0 if unset/invalid
+    if log_level_str and log_level_str.isdigit() and int(log_level_str) in (0, 1, 2):
+        verbosity_env = int(log_level_str)
     else:
-        resolved_log_file_path = log_file_path or os.path.join(os.getcwd(), "log.txt")
-    # ensure the log file exists
-    try:
-        with open(resolved_log_file_path, "a", encoding="ascii", errors="ignore"):
-            pass
-    except Exception:
-        pass
+        verbosity_env = 0
+
+    # LOG_FILE: must always be a valid, writable path
+    if log_file_path is not None:
+        if not validate_log_file_path(log_file_path):
+            print("ERROR: LOG_FILE is not set or is unwritable.", file=sys.stderr)
+            return 1
+        resolved_log_file_path = log_file_path
+    else:
+        # Default to ./log.txt if LOG_FILE is not set
+        resolved_log_file_path = os.path.join(os.getcwd(), "log.txt")
+        if not validate_log_file_path(resolved_log_file_path):
+            print("ERROR: LOG_FILE is not set or is unwritable.", file=sys.stderr)
+            return 1
+        
+    # GITHUB_TOKEN: if provided, it must be valid
+    if github_token and not validate_github_token(github_token):
+        print("ERROR: GITHUB_TOKEN is not set or invalid.", file=sys.stderr)
+        return 1
 
     parser = argparse.ArgumentParser(
-        prog="run",
-        description="LLM Model Evaluator",
-        add_help=False
+        prog="run", description="LLM Model Evaluator", add_help=False
     )
 
     parser.add_argument(
-        '-h', '--help',
-        action='help',
-        default=argparse.SUPPRESS,
+        '-h', '--help', action='help', default=argparse.SUPPRESS,
         help=(
             "usage: run [-v | --verbose] [-h | --help] {install, test} | URL_FILE\n\n"
             "positional arguments:\n"
@@ -136,12 +140,10 @@ def main() -> int:
     )
     
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help=('Enable verbose output')
+        '-v', '--verbose', action='store_true', help=('Enable verbose output')
     )
 
-    # Install command
+    # Install command / test / URL file
     parser.add_argument(
         "target",
         type=str,
@@ -153,55 +155,55 @@ def main() -> int:
     # Final verbosity: env (if valid) > -v flag > 0
     verbosity = verbosity_env if verbosity_env is not None else (1 if args.verbose else 0)
 
-    # --- Dispatch logic ---
+    # Dispatch logic
     if args.target == "install":
         print("Installing dependencies...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "--user", "-r", "requirements.txt"])
+        subprocess.check_call(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--user",
+                "-r",
+                "requirements.txt"
+            ]
+        )
 
     elif args.target == "test":
-        # If our tests invoke `main("test")` again, don't re-run the suite.
+        # If any tests call run.py again, don't re-run the suite.
         if os.getenv(NESTED_TEST_GUARD) == "1":
-            # Produce the required one-liner without executing tests again.
-            import unittest
-            loader = unittest.TestLoader()
-            suite = loader.discover('tests')
-            total = suite.countTestCases()
-            # We’re inside a nested call; report a sane line to satisfy the unit test.
-            print(f"{total}/{total} test cases passed. 80% line coverage achieved.")
             return 0
+        
         _run_tests_and_print_summary()
-        return 0  # unreached in outer call because _run_tests_and_print_summary sys.exits
+        # Unreached in outer call because _run_tests_and_print_summary sys.exits
+        return 0
 
     else:
-        # Only relevant when actually evaluating models from a URL file.
-        if not require_env and github_token:
-            if not validate_github_token(github_token):
-                github_token = None
-            else:
-                GitHubApi.verify_token(github_token)
-
         # Running URL FILE
-        project_groups: list[url_class.ProjectGroup] = url_class.parse_project_file(args.target)
-        x = metric_caller.load_available_functions("src.metrics")
+        project_groups: list[url_class.ProjectGroup] = url_class.parse_project_file(
+            args.target
+        )
+        metric_funcs = metric_caller.load_available_functions("src.metrics")
 
-        for i in project_groups:
-            if i.model is None:
-            # still emit an empty model record so line counts match
+        for group in project_groups:
+            if group.model is None:
+                # Emit an empty model record so line counts match
                 build_model_output(name="", category="MODEL", scores={}, latency={})
                 continue
 
-            namespace = i.model.namespace
-            repo = i.model.repo
-            rev = i.model.rev or "main"
+            namespace = group.model.namespace
+            repo = group.model.repo
+            rev = group.model.rev or "main"
 
             # Skip if namespace or repo is missing or empty
             if not repo:
-                # truly unusable: no repo at all -> still emit a minimal record
+                # Truly unusable: no repo at all -> still emit a minimal record
                 build_model_output(name="", category="MODEL", scores={}, latency={})
                 continue
 
             if not namespace:
-                # single-segment HF model: print a valid record (you can use defaults)
+                # Single-segment HF model: print a valid record (you can use defaults)
                 build_model_output(name=repo, category="MODEL", scores={}, latency={})
                 continue
 
@@ -211,7 +213,7 @@ def main() -> int:
 
             # Safely build github_str
             github_str = ""
-            code_obj = getattr(i, "code", None)
+            code_obj = getattr(group, "code", None)
             if code_obj is not None:
                 code_link = getattr(code_obj, "link", None)
                 if isinstance(code_link, str):
@@ -219,7 +221,7 @@ def main() -> int:
 
             # Safely build dataset_name
             dataset_name = ""
-            dataset_obj = getattr(i, "dataset", None)
+            dataset_obj = getattr(group, "dataset", None)
             if dataset_obj is not None:
                 dataset_repo = getattr(dataset_obj, "repo", None)
                 if isinstance(dataset_repo, str):
@@ -239,11 +241,11 @@ def main() -> int:
 
             # Run all metrics defined in tasks.txt using the available functions
             scores, latency = metric_caller.run_concurrently_from_file(
-                "./tasks.txt", input_dict, x, resolved_log_file_path
+                "./tasks.txt", input_dict, metric_funcs, resolved_log_file_path
             )
             build_model_output(f"{repo}", "MODEL", scores, latency)
     
     return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

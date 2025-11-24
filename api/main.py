@@ -206,7 +206,7 @@ async def create_artifact(
 # Artifact query + read/update/delete
 # --------------------------------------------------------------------
 
-
+'''
 @app.post("/artifacts", tags=["baseline"])
 def list_artifacts(
     queries: List[ArtifactQuery],
@@ -243,6 +243,57 @@ def list_artifacts(
     return results
 
 BAD_REQUEST_MESSAGE = "There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid."
+'''
+
+@app.post("/artifacts", tags=["baseline"])
+def list_artifacts(
+    queries: List[ArtifactQuery],
+    x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
+):
+   
+    logger.info(f"[LIST ARTIFACTS] Incoming POST /artifacts with queries={queries}")
+
+    if not queries:
+        logger.info("[LIST ARTIFACTS] No queries provided → []")
+        return []
+
+    results = []
+    seen_ids = set()
+
+    # OR semantics across all queries: any artifact matching any query is returned once
+    for q in queries:
+        q_name = q.name
+        q_types = q.types
+
+        for stored in ARTIFACTS.values():
+            meta = stored["metadata"]
+            art_id = meta["id"]
+            art_name = meta["name"]
+            art_type = meta["type"]
+
+            # Name filter
+            if q_name != "*" and art_name != q_name:
+                continue
+
+            # Type filter
+            if q_types is not None and len(q_types) > 0 and art_type not in q_types:
+                continue
+
+            # Avoid duplicates when multiple queries match the same artifact
+            if art_id in seen_ids:
+                continue
+
+            seen_ids.add(art_id)
+            result_item = {
+                "name": art_name,
+                "id": art_id,
+                "type": art_type,
+            }
+            results.append(result_item)
+
+    logger.info(f"[LIST ARTIFACTS] Returning {len(results)} result(s): {results}")
+    return results
+
 
 @app.get(
     "/artifacts/{artifact_type}/{id}",
@@ -621,25 +672,3 @@ async def get_audit_log(artifact_type: str, id: str):
             {"event": "created", "by": "system", "timestamp": "2025-01-01T00:00:00Z"}
         ],
     }
-
-@app.get("/artifact/byName/{name}")
-def get_artifact_by_name(name: str):
-    logger.info(f"[BYNAME] Incoming GET /artifact/byName/{name}")
-    logger.info(f"[BYNAME] ARTIFACTS currently stored: {list(ARTIFACTS.keys())}")
-
-    results = []
-    for stored_id, stored in ARTIFACTS.items():
-        meta = stored["metadata"]
-        logger.info(f"[BYNAME] Checking artifact id={stored_id}, name={meta['name']}")
-
-        if meta["name"] == name:
-            logger.info(f"[BYNAME] MATCH: {meta}")
-            results.append({
-                "name": meta["name"],
-                "id": meta["id"],
-                "type": meta["type"]
-            })
-
-    logger.info(f"[BYNAME] Returning results: {results}")
-    return results
-

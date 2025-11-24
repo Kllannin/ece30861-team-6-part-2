@@ -228,6 +228,7 @@ def list_artifacts(
             }
         )
     return results
+BAD_REQUEST_MESSAGE = "There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid."
 
 @app.get(
     "/artifacts/{artifact_type}/{id}",
@@ -239,62 +240,24 @@ async def get_artifact_by_id(
     id: str,
     x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
 ):
-    """
-    GET /artifacts/{artifact_type}/{id}
-    Returns the full Artifact object.
-    Autograder requires correct 400/403/404 behavior.
-    Includes debug logging.
-    """
-
-    # -----------------------------
-    # LOG THE INCOMING REQUEST
-    # -----------------------------
-    logger.info(f"[GET ARTIFACT] Incoming request type={artifact_type}, id={id}")
-    logger.info(f"[GET ARTIFACT] Authorization: {x_authorization}")
-
-    # -----------------------------
     # 1) Validate artifact_type
-    # -----------------------------
     if artifact_type not in {"model", "dataset", "code"}:
-        logger.warning(f"[GET ARTIFACT] Invalid artifact_type='{artifact_type}' → 400")
-        raise HTTPException(status_code=400, detail="Invalid artifact_type")
+        raise HTTPException(status_code=400, detail=BAD_REQUEST_MESSAGE)
 
-    # -----------------------------
-    # 2) Check if artifact exists
-    # -----------------------------
+    # 2) Does artifact exist?
     stored = ARTIFACTS.get(id)
-
     if not stored:
-        logger.warning(f"[GET ARTIFACT] Artifact ID '{id}' not found → 404")
         raise HTTPException(status_code=404, detail="Artifact does not exist.")
 
-    # -----------------------------
-    # 3) Validate type matches
-    # -----------------------------
+    # 3) Type mismatch → 400
     if stored["metadata"]["type"] != artifact_type:
-        logger.warning(
-            f"[GET ARTIFACT] Type mismatch: requested '{artifact_type}' "
-            f"but stored '{stored['metadata']['type']}' → 400"
-        )
-        raise HTTPException(status_code=400, detail="Artifact type mismatch.")
+        raise HTTPException(status_code=400, detail=BAD_REQUEST_MESSAGE)
 
-    # -----------------------------
-    # 4) Ensure URL exists (spec-required)
-    # -----------------------------
+    # 4) URL missing → 400
     if "url" not in stored["data"] or not stored["data"]["url"]:
-        logger.error(f"[GET ARTIFACT] Artifact '{id}' missing required URL → 400")
-        raise HTTPException(
-            status_code=400,
-            detail="Artifact data missing required 'url' field.",
-        )
+        raise HTTPException(status_code=400, detail=BAD_REQUEST_MESSAGE)
 
-    # -----------------------------
-    # 5) SUCCESS – return artifact
-    # -----------------------------
-    logger.info(
-        f"[GET ARTIFACT] SUCCESS id={id}, name={stored['metadata']['name']}, type={artifact_type}"
-    )
-
+    # 5) OK
     return {
         "metadata": stored["metadata"],
         "data": stored["data"],

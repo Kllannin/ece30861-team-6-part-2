@@ -214,11 +214,6 @@ def list_artifacts(
 ):
     """
     POST /artifacts – query artifacts.
-
-    For reset tests, the grader sends:
-      [ { "name": "*", "types": [] } ]
-
-    We return a list of { name, id, type } dicts.
     """
     if not queries:
         return []
@@ -228,11 +223,16 @@ def list_artifacts(
     results = []
     for stored in ARTIFACTS.values():
         meta = stored["metadata"]
-        if q.name != "*" and not meta["name"].startswith(q.name):
+
+        # EXACT name match (or wildcard)
+        if q.name != "*" and meta["name"] != q.name:
             continue
+
+        # Types: if None or [], treat as "any type"
         if q.types is not None and len(q.types) > 0:
             if meta["type"] not in q.types:
                 continue
+
         results.append(
             {
                 "name": meta["name"],
@@ -240,7 +240,13 @@ def list_artifacts(
                 "type": meta["type"],
             }
         )
+    logger.info(
+    f"[LIST ARTIFACTS] Query name='{q.name}', types={q.types}; "
+    f"checking stored name='{meta['name']}', type='{meta['type']}'"
+    )
+
     return results
+
 BAD_REQUEST_MESSAGE = "There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid."
 
 @app.get(
@@ -269,6 +275,13 @@ async def get_artifact_by_id(
             f"[GET ARTIFACT] Artifact ID '{id}' not found → 404"
         )
         raise HTTPException(status_code=404, detail="Artifact does not exist.")
+    # 3) Type mismatch → 400
+    if stored["metadata"]["type"] != artifact_type:
+        logger.warning(
+            f"[GET ARTIFACT] Type mismatch: requested='{artifact_type}', "
+            f"stored='{stored['metadata']['type']}' → 400"
+        )
+        raise HTTPException(status_code=400, detail=BAD_REQUEST_MESSAGE)
 
     # 4) URL missing → 400
     if "url" not in stored["data"] or not stored["data"]["url"]:

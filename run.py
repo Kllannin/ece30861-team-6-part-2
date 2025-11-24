@@ -68,6 +68,10 @@ def validate_log_file_path(path: str) -> bool:
             os.makedirs(dir_name, exist_ok=True)
         if not os.access(dir_name, os.W_OK):
             return False
+        
+        # Test if the file opens
+        with open(path, "a", encoding="ascii", errors="ignore"):
+            pass
     except (OSError, IOError):
         return False
     return True
@@ -91,7 +95,6 @@ def main() -> int:
         if not github_token or not validate_github_token(github_token):
             print("ERROR: GITHUB_TOKEN is not set or invalid.", file=sys.stderr)
             sys.exit(1)
-        GitHubApi.verify_token(github_token)
 
     # Non-strict mode: safe defaults
     verbosity_env = (

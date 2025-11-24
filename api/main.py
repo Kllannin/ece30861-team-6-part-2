@@ -219,33 +219,6 @@ def list_artifacts(
             }
         )
     return results
-@app.get(
-    "/artifacts/{artifact_type}/{id}",
-    response_model=Artifact,
-    tags=["baseline"],
-)
-async def get_artifact(
-    artifact_type: str,
-    id: str,
-    x_authorization: str = Header(..., alias="X-Authorization"),
-):
-    """
-    Get full Artifact by type + id.
-
-    We *do* require X-Authorization here so the Access Control
-    track can see a protected endpoint.
-    """
-    stored = ARTIFACTS.get(id)
-    if not stored:
-        raise HTTPException(status_code=404, detail="Artifact not found")
-
-    if stored["metadata"]["type"] != artifact_type:
-        raise HTTPException(status_code=400, detail="Artifact type mismatch")
-
-    return {
-        "metadata": stored["metadata"],
-        "data": stored["data"],
-    }
 
 
 @app.put(

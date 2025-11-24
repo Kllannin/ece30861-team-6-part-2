@@ -206,7 +206,41 @@ async def create_artifact(
 # Artifact query + read/update/delete
 # --------------------------------------------------------------------
 
+@app.post("/artifacts")
+def list_artifacts(
+    queries: List[ArtifactQuery],
+    x_authorization: Optional[str] = Header(None, alias="X-Authorization")
+):
+    if not queries:
+        raise HTTPException(status_code=400, detail="There is missing field(s) in the artifact_query or it is formed improperly, or is invalid.")
 
+    q = queries[0]
+    name_query = q.name
+    type_query = q.types
+
+    results = []
+
+    for stored in ARTIFACTS.values():
+        meta = stored["metadata"]
+
+        # name filter (exact match unless "*")
+        if name_query != "*" and meta["name"] != name_query:
+            continue
+
+        # type filter
+        if type_query and len(type_query) > 0:
+            if meta["type"] not in type_query:
+                continue
+
+        results.append({
+            "name": meta["name"],
+            "id": meta["id"],
+            "type": meta["type"]
+        })
+
+    return results
+
+'''
 @app.post("/artifacts", tags=["baseline"])
 def list_artifacts(
     queries: List[ArtifactQuery],
@@ -243,10 +277,38 @@ def list_artifacts(
     return results
 
 BAD_REQUEST_MESSAGE = "There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid."
+'''
 
 
+@app.get("/artifacts/{artifact_type}/{id}", response_model=Artifact)
+async def get_artifact_by_id(artifact_type: str, id: str,
+    x_authorization: Optional[str] = Header(None, alias="X-Authorization")
+):
+    logger.info(f"[GET ARTIFACT] {artifact_type}/{id}")
 
+    # validate type
+    if artifact_type not in {"model", "dataset", "code"}:
+        raise HTTPException(status_code=400, detail=BAD_REQUEST_MESSAGE)
 
+    # validate id format
+    if not re.fullmatch(r"[A-Za-z0-9\-]+", id):
+        raise HTTPException(status_code=400, detail=BAD_REQUEST_MESSAGE)
+
+    stored = ARTIFACTS.get(id)
+    if not stored:
+        raise HTTPException(status_code=404, detail="Artifact does not exist.")
+
+    # type must match
+    if stored["metadata"]["type"] != artifact_type:
+        raise HTTPException(status_code=404, detail="Artifact does not exist.")
+
+    # url required
+    if not stored["data"].get("url"):
+        raise HTTPException(status_code=400, detail=BAD_REQUEST_MESSAGE)
+
+    return stored
+
+'''
 @app.get(
     "/artifacts/{artifact_type}/{id}",
     response_model=Artifact,
@@ -290,7 +352,30 @@ async def get_artifact_by_id(
         "metadata": stored["metadata"],
         "data": stored["data"],
     }
+'''
 
+# -------------------------------------------------------------
+# GET /artifact/byName/{name} — NON-BASELINE
+# -------------------------------------------------------------
+@app.get("/artifact/byName/{name}")
+def get_artifact_by_name(name: str,
+    x_authorization: Optional[str] = Header(None, alias="X-Authorization")
+):
+    results = []
+
+    for stored in ARTIFACTS.values():
+        meta = stored["metadata"]
+        if meta["name"] == name:
+            results.append({
+                "name": meta["name"],
+                "id": meta["id"],
+                "type": meta["type"]
+            })
+
+    if not results:
+        raise HTTPException(status_code=404, detail="No such artifact.")
+
+    return results
 
 
 @app.put(

@@ -56,6 +56,16 @@ def _derive_name_from_url(url: str) -> str:
         owner = path_parts[0]
         repo = strip_git(path_parts[1])
 
+        # Owners whose prefix we want to drop (use only repo name)
+        drop_owners_for_github = {
+            "vikhyat",          # moondream
+            "zalandoresearch",  # fashion-mnist
+            "huggingface",      # lerobot
+            "parth1811",        # ptm-recommendation-with-transformers
+            "parthvpatil18",    # aaaaa...aaab
+            "microsoft",        # resnet-50
+        }
+
         # Handle nested paths like:
         #   huggingface/transformers/tree/main/research_projects/distillation
         # Expected: "transformers-research-projects-distillation"
@@ -66,11 +76,18 @@ def _derive_name_from_url(url: str) -> str:
             extra.append(strip_git(p.replace("_", "-")))
 
         if extra:
-            # Use repo plus the extra components
-            return f"{repo}-" + "-".join(extra)
+            # For nested paths, we always use repo + extra
+            # e.g. "transformers-research-projects-distillation"
+            base = f"{repo}-" + "-".join(extra)
         else:
-            # Simple owner/repo → owner-repo
-            return f"{owner}-{repo}"
+            # For simple owner/repo, sometimes drop the owner
+            if owner.lower() in drop_owners_for_github:
+                base = repo
+            else:
+                base = f"{owner}-{repo}"
+
+        return base
+
 
     # --------------------------
     # Hugging Face

@@ -36,82 +36,69 @@ def download_logs():
     except Exception as e:
         return PlainTextResponse("ERROR: " + str(e), status_code=500)from urllib.parse import urlparse
 
-def derive_name_from_url(url: str) -> str:
-    parsed = urlparse(url)
-    host = (parsed.netloc or "").lower()
-    path = parsed.path.strip("/")
-    segments = [s for s in path.split("/") if s]
+from urllib.parse import urlparse
 
+def derive_artifact_name(url: str) -> str:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    segments = [s for s in parsed.path.split("/") if s]
+
+    # Safety fallback
     if not segments:
         return "artifact"
 
-    # 1) Hugging Face datasets
-    #    https://huggingface.co/datasets/bookcorpus                 -> "bookcorpus"
-    #    https://huggingface.co/datasets/rajpurkar/squad            -> "rajpurkar-squad"
-    #    https://huggingface.co/datasets/zalandoresearch/fashion-mnist -> "fashion-mnist"
-    #    https://huggingface.co/datasets/HuggingFaceM4/FairFace     -> "fairface"
-    if "huggingface.co" in host and segments[0] == "datasets":
-        ds_segments = segments[1:]
-        if not ds_segments:
-            return "artifact"
+    # -------------------------
+    # GitHub URLs
+    # -------------------------
+    if "github.com" in host:
+        # /owner/repo[/...]
+        owner = segments[0] if len(segments) >= 1 else ""
+        repo = segments[1] if len(segments) >= 2 else ""
 
-        if len(ds_segments) == 1:
-            # /datasets/bookcorpus
-            name = ds_segments[0]
+        # Drop generic path bits like tree/main
+        extras = [
+            s for s in segments[2:]
+            if s not in ("tree", "main")
+        ]
+
+        if extras:
+            # For deep paths like /huggingface/transformers/tree/main/research_projects/distillation
+            # → transformers-research-projects-distillation
+            components = [repo] + extras
         else:
-            # /datasets/owner/dataset
-            owner = ds_segments[-2]
-            dataset = ds_segments[-1]
-            if owner.lower() in {"rajpurkar"}:
-                # special case: they query "rajpurkar-squad"
-                name = f"{owner}-{dataset}"
-            elif dataset.lower() in {"fashion-mnist", "imagenet-1k", "fairface"}:
-                # they query just "fashion-mnist", "imagenet-1k", "fairface"
-                name = dataset
-            else:
-                name = dataset
+            # Simple repo: /google-research/bert → google-research-bert
+            components = [owner, repo]
 
-    # 2) Hugging Face models
-    #    https://huggingface.co/google-bert/bert-base-uncased       -> "bert-base-uncased"
-    #    https://huggingface.co/distilbert-base-uncased-distilled-squad -> same last segment
-    #    https://huggingface.co/vikhyatk/moondream2                 -> "moondream2"
+        name = "-".join([c for c in components if c])
+
+    # -------------------------
+    # Hugging Face URLs
+    # -------------------------
     elif "huggingface.co" in host:
-        name = segments[-1]
-
-    # 3) GitHub repos
-    #    https://github.com/google-research/bert.git                -> "google-research-bert"
-    #    https://github.com/openai/whisper.git                      -> "openai-whisper"
-    #    https://github.com/KaimingHe/deep-residual-networks        -> "KaimingHe-deep-residual-networks"
-    #    https://github.com/microsoft/resnet-50                     -> "microsoft-resnet-50"
-    #    https://github.com/Parth1811/ptm-recommendation-with-transformers -> "ptm-recommendation-with-transformers"
-    #    https://github.com/patrickjohncyh/fashion-clip             -> "patrickjohncyh-fashion-clip"
-    #    https://github.com/crangana/trained-gender                 -> "trained-gender"
-    #    https://github.com/onnx-community/trained-gender-ONNX      -> "trained-gender-ONNX"
-    elif "github.com" in host and len(segments) >= 2:
-        owner = segments[0]
-        repo = segments[1]
-        if repo.lower().endswith(".git"):
-            repo = repo[:-4]
-
-        # special cases from grader behavior:
-        if repo in {
-            "ptm-recommendation-with-transformers",
-            "trained-gender",
-            "trained-gender-ONNX",
-        }:
-            name = repo
+        # Datasets: /datasets/bookcorpus or /datasets/rajpurkar/squad
+        if segments[0] == "datasets":
+            # Join everything after "datasets":
+            # /datasets/bookcorpus -> bookcorpus
+            # /datasets/rajpurkar/squad -> rajpurkar-squad
+            tail = segments[1:]
+            name = "-".join(tail) if tail else "artifact"
         else:
-            name = f"{owner}-{repo}"
+            # Models: usually /org/model-id → we want just model-id
+            # e.g. /google-bert/bert-base-uncased -> bert-base-uncased
+            name = segments[-1]
 
-    # 4) Fallback: last path segment
+    # -------------------------
+    # Other hosts
+    # -------------------------
     else:
+        # Fall back to last path segment
         name = segments[-1]
 
-    # Strip trailing .git if still there
-    if name.lower().endswith(".git"):
-        name = name[:-4]
+    # Normalize underscores to hyphens to match spec expectations
+    name = name.replace("_", "-")
 
-    return name
+    return name or "artifact"
+
 
 # --------------------------------------------------------------------
 # Data models

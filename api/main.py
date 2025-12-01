@@ -400,10 +400,25 @@ def get_artifact_by_name(
     """
     logger.info(f"[BYNAME] {name}")
 
-    matches = []
+    # Normalize name for non case-sensitive comparison
+    query_name = name.lower()
+
+    # Wildcard returns all artifact metadata
+    if query_name == "*":
+        return [
+            {
+                "name": stored["metadata"]["name"],
+                "id": stored["metadata"]["id"],
+                "type": stored["metadata"]["type"],
+            }
+            for stored in ARTIFACTS.values()
+        ]
+    
+    matches: list[dict[str, str]] = []
     for stored in ARTIFACTS.values():
         meta = stored["metadata"]
-        if meta["name"] == name:
+        # Perform non case-sensitive comparison for the name
+        if meta.get("name", "").lower() == query_name:
             matches.append(
                 {
                     "name": meta["name"],
@@ -411,9 +426,6 @@ def get_artifact_by_name(
                     "type": meta["type"],
                 }
             )
-
-    if not matches:
-        raise HTTPException(status_code=404, detail="No such artifact.")
 
     return matches
 
@@ -656,23 +668,16 @@ async def artifact_by_regex(
     if not pattern:
         return [a["metadata"] for a in ARTIFACTS.values()]
 
-    # 4) Anchor the pattern for exact name matching when regex anchors are not provided
-    pattern_anchored = str(pattern)
-    if not pattern_anchored.startswith("^"):
-        pattern_anchored = "^" + pattern_anchored
-    if not pattern_anchored.endswith("$"):
-        pattern_anchored = pattern_anchored + "$"
-
-    # 5) Compile anchored regex
+    # 4) Compile the provided pattern. Raise error 400 if the regex is invalid.
     try:
-        regex = re.compile(pattern_anchored)
+        regex = re.compile(str(pattern))
     except re.error:
         raise HTTPException(status_code=400, detail="Invalid regex pattern")
 
-    # 6) Filter by name: only include exact pattern matches
+    # 5) Filter by name: use regex.search to test name matches
     selected: list[dict[str, str]] = []
     for stored in ARTIFACTS.values():
-        name = stored["metadata"]["name"]
+        name = stored["metadata"].get("name", "")
         if regex.search(name):
             selected.append(stored["metadata"])
 

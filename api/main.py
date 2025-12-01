@@ -43,7 +43,7 @@ def _derive_name_from_url(url: str) -> str:
 
     def strip_git(s: str) -> str:
         s = s.strip()
-        return s[:-4] if s.lower().endswith(".git") else s
+        return s[:-4].lower() if s.lower().endswith(".git") else s
 
     # No useful path → fallback
     if not path_parts:
@@ -63,7 +63,7 @@ def _derive_name_from_url(url: str) -> str:
             "huggingface",      # lerobot
             "parth1811",        # ptm-recommendation-with-transformers
             "parthvpatil18",    # aaaaa...aaab
-            "microsoft",        # resnet-50
+            "patrickjohncyh",
         }
 
         # Handle nested paths like:
@@ -86,7 +86,7 @@ def _derive_name_from_url(url: str) -> str:
             else:
                 base = f"{owner}-{repo}"
 
-        return base
+        return base.lower()
 
 
     # --------------------------
@@ -98,7 +98,7 @@ def _derive_name_from_url(url: str) -> str:
             # e.g. /datasets/bookcorpus or /datasets/bookcorpus/bookcorpus
             if len(path_parts) == 2:
                 ds = strip_git(path_parts[1])
-                return ds
+                return ds.lower()
 
             # e.g. /datasets/rajpurkar/squad, /datasets/ILSVRC/imagenet-1k
             if len(path_parts) >= 3:
@@ -107,23 +107,23 @@ def _derive_name_from_url(url: str) -> str:
 
                 # If owner == dataset (bookcorpus/bookcorpus), just return dataset
                 if owner.lower() == ds.lower():
-                    return ds
+                    return ds.lower()
 
                 # Some “big org” owners should be dropped in the name
                 drop_owners = {"zalandoresearch", "ilsvrc", "huggingfacem4"}
                 if owner.lower() in drop_owners:
-                    return ds
+                    return ds.lower()
 
                 # Otherwise, keep both
-                return f"{owner}-{ds}"
+                return f"{owner}-{ds}".lower()
 
             # Fallback
-            return strip_git(path_parts[-1])
+            return strip_git(path_parts[-1]).lower()
 
         # Models: /<owner>/<model> or /<model>
         if len(path_parts) == 1:
             # e.g. https://huggingface.co/bert-base-uncased
-            return strip_git(path_parts[0])
+            return strip_git(path_parts[0]).lower()
 
         owner = path_parts[0]
         model = strip_git(path_parts[1])
@@ -135,12 +135,14 @@ def _derive_name_from_url(url: str) -> str:
             "crangana",         # trained-gender
             "onnx-community",   # trained-gender-ONNX
             "vikhyat",          # moondream
+            "parthvpatil18",
         }
         if owner.lower() in drop_owners_for_models:
-            return model
-
+            return model.lower()
+        if owner.lower() == "microsoft" and model.lower().startswith("resnet-"):
+            return model.lower()
         # Otherwise keep owner-model (microsoft-git-base, WinKawaks-vit-tiny..., vikhyatk-moondream2, etc.)
-        return f"{owner}-{model}"
+        return f"{owner}-{model}".lower()
 
     # --------------------------
     # Default: use last segment

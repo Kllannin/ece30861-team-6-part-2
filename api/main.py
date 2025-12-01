@@ -628,32 +628,49 @@ async def artifact_by_regex(
     request: Request = None,
     x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
 ):
-    # 1) Try to get pattern from JSON body
-    pattern = None
+    # 1) Try to get pattern from JSON body by accepting common keys
+    pattern: Optional[str] = None
     if isinstance(body, str):
         pattern = body
     elif isinstance(body, dict):
-        pattern = body.get("pattern") or body.get("regex") or body.get("regEx")
+        pattern = (
+            body.get("pattern")
+            or body.get("regex")
+            or body.get("regEx")
+            or body.get("name")
+        )
 
-    # 2) Fall back to query parameter if needed: ?regex=...
+    # 2) Fall back to query parameter if needed: ?regex= or ?name=
     if not pattern and request is not None:
         qp = request.query_params
-        pattern = qp.get("pattern") or qp.get("regex") or qp.get("regEx")
+        pattern = (
+            qp.get("pattern")
+            or qp.get("regex")
+            or qp.get("regEx")
+            or qp.get("name")
+        )
 
-    # 3) No pattern -> probably return ALL or NONE.
+    # 3) If no pattern, return all artifacts
     # The spec says "Get any artifacts fitting the regular expression" – if no regex,
     # safest for autograder is usually "return all".
     if not pattern:
         return [a["metadata"] for a in ARTIFACTS.values()]
 
-    # 4) Compile regex
+    # 4) Anchor the pattern for exact name matching when regex anchors are not provided
+    pattern_anchored = str(pattern)
+    if not pattern_anchored.startswith("^"):
+        pattern_anchored = "^" + pattern_anchored
+    if not pattern_anchored.endswith("$"):
+        pattern_anchored = pattern_anchored + "$"
+
+    # 5) Compile anchored regex
     try:
-        regex = re.compile(pattern)
+        regex = re.compile(pattern_anchored)
     except re.error:
         raise HTTPException(status_code=400, detail="Invalid regex pattern")
 
-    # 5) Filter by name
-    selected = []
+    # 6) Filter by name: only include exact pattern matches
+    selected: list[dict[str, str]] = []
     for stored in ARTIFACTS.values():
         name = stored["metadata"]["name"]
         if regex.search(name):

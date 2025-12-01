@@ -3,6 +3,7 @@
 from fastapi import FastAPI, UploadFile, File, Header, HTTPException, Body,Request
 from pydantic import BaseModel
 from fastapi.responses import PlainTextResponse
+from urllib.parse import urlparse
 import time
 from typing import List, Dict, Optional, Any
 import uuid
@@ -35,7 +36,33 @@ def download_logs():
     except Exception as e:
         return PlainTextResponse("ERROR: " + str(e), status_code=500)
 
+def _derive_name_from_url(url: str) -> str:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    path_parts = [p for p in parsed.path.strip("/").split("/") if p]
 
+    def strip_git(s: str) -> str:
+        s = s.strip()
+        return s[:-4] if s.lower().endswith(".git") else s
+
+    # No useful path → fallback
+    if not path_parts:
+        return "artifact"
+
+    # GitHub: owner/repo[.git] → owner-repo
+    if "github.com" in host and len(path_parts) >= 2:
+        owner = path_parts[0]
+        repo = strip_git(path_parts[1])
+        return f"{owner}-{repo}"
+
+    # HuggingFace: owner/model or owner/dataset → owner-modelstyle
+    if "huggingface.co" in host and len(path_parts) >= 2:
+        owner = path_parts[0]
+        repo = path_parts[1]
+        return f"{owner}-{repo}"
+
+    # Default: last segment (e.g., plain files or single-part HF URLs)
+    return strip_git(path_parts[-1])
 # --------------------------------------------------------------------
 # Data models
 # --------------------------------------------------------------------
@@ -162,20 +189,8 @@ async def create_artifact(
 
     # 2) Generate an id that matches the ArtifactID pattern: ^[a-zA-Z0-9\-]+$
     artifact_id = str(uuid.uuid4())  # hex + hyphens -> matches pattern
-
-    # 3) Derive a reasonable name from the URL, like the examples in the spec
-    #    e.g. "https://huggingface.co/google-bert/bert-base-uncased"
-    #         -> "bert-base-uncased"
-    parsed = urlparse(data.url)
-    parts = parsed.path.rstrip("/").split("/")
-    name = None
-    # Skip empty segments and generic suffixes like "tree" or "main"
-    for part in reversed(parts):
-        if part and part not in {"tree", "main"}:
-            name = part
-            break
-    if not name:
-        name = "artifact"
+    
+    name = _derive_name_from_url(data.url)
 
     # 4) Construct a download_url (any valid URI string is fine per spec)
     download_url = f"http://example.com/download/{artifact_id}"

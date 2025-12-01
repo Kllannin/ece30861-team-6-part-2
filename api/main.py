@@ -334,7 +334,7 @@ def list_artifacts(
         return []
 
     q = queries[0]
-    name_query = q.name.lower()
+    name_query = q.name
     types_query = q.types
 
     def normalize_name(s: str) -> str:
@@ -388,7 +388,7 @@ def list_artifacts(
 
         results.append(
             {
-                "name": art_name,
+                "name": art_name.lower(),
                 "id": art_id,
                 "type": art_type,
             }

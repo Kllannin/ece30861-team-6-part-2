@@ -337,7 +337,8 @@ async def get_artifact_by_id(
     # url required
     if not stored["data"].get("url"):
         raise HTTPException(status_code=400, detail=BAD_REQUEST_MESSAGE)
-
+    
+    logger.info(f"[GET ARTIFACT] SUCCESS id={id}, name={stored['metadata']['name']}, type={artifact_type} → 200")
     return stored
 
 '''

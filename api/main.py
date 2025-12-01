@@ -43,7 +43,7 @@ def _derive_name_from_url(url: str) -> str:
 
     def strip_git(s: str) -> str:
         s = s.strip()
-        return s[:-4].lower() if s.lower().endswith(".git") else s
+        return s[:-4] if s.lower().endswith(".git") else s
 
     # No useful path → fallback
     if not path_parts:
@@ -86,7 +86,7 @@ def _derive_name_from_url(url: str) -> str:
             else:
                 base = f"{owner}-{repo}"
 
-        return base.lower()
+        return base
 
 
     # --------------------------
@@ -98,7 +98,7 @@ def _derive_name_from_url(url: str) -> str:
             # e.g. /datasets/bookcorpus or /datasets/bookcorpus/bookcorpus
             if len(path_parts) == 2:
                 ds = strip_git(path_parts[1])
-                return ds.lower()
+                return ds
 
             # e.g. /datasets/rajpurkar/squad, /datasets/ILSVRC/imagenet-1k
             if len(path_parts) >= 3:
@@ -107,23 +107,23 @@ def _derive_name_from_url(url: str) -> str:
 
                 # If owner == dataset (bookcorpus/bookcorpus), just return dataset
                 if owner.lower() == ds.lower():
-                    return ds.lower()
+                    return ds
 
                 # Some “big org” owners should be dropped in the name
                 drop_owners = {"zalandoresearch", "ilsvrc", "huggingfacem4"}
                 if owner.lower() in drop_owners:
-                    return ds.lower()
+                    return ds
 
                 # Otherwise, keep both
-                return f"{owner}-{ds}".lower()
+                return f"{owner}-{ds}"
 
             # Fallback
-            return strip_git(path_parts[-1]).lower()
+            return strip_git(path_parts[-1])
 
         # Models: /<owner>/<model> or /<model>
         if len(path_parts) == 1:
             # e.g. https://huggingface.co/bert-base-uncased
-            return strip_git(path_parts[0]).lower()
+            return strip_git(path_parts[0])
 
         owner = path_parts[0]
         model = strip_git(path_parts[1])
@@ -138,12 +138,11 @@ def _derive_name_from_url(url: str) -> str:
             "parthvpatil18",
         }
         if owner.lower() in drop_owners_for_models:
-            return model.lower()
+            return model
         if owner.lower() == "microsoft" and model.lower().startswith("resnet-"):
-            return model.lower()
+            return model
         # Otherwise keep owner-model (microsoft-git-base, WinKawaks-vit-tiny..., vikhyatk-moondream2, etc.)
-        return f"{owner}-{model}".lower()
-
+        return f"{owner}-{model}"
     # --------------------------
     # Default: use last segment
     # --------------------------
@@ -388,7 +387,7 @@ def list_artifacts(
 
         results.append(
             {
-                "name": art_name.lower(),
+                "name": art_name,
                 "id": art_id,
                 "type": art_type,
             }

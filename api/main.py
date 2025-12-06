@@ -678,30 +678,6 @@ async def get_model_rate(
         "size_score_latency": 0.01,
     }
 
-'''
-@app.get("/artifact/model/{id}/rate", tags=["baseline"])
-async def get_model_rate(
-    id: str,
-    x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
-):
-    """
-    Dummy rating info. The spec mainly cares that we return JSON.
-    """
-    if id not in ARTIFACTS:
-        raise HTTPException(status_code=404, detail="Artifact not found")
-
-    # Completely fake metrics – just placeholders.
-    return {
-        "overall": 0.8,
-        "reproducibility": 1.0,
-        "reviewedness": 0.5,
-        "treescore": 0.7,
-        "details": {
-            "quality": 0.9,
-            "documentation": 0.75,
-        },
-    }
-'''
 
 @app.get("/artifact/{artifact_type}/{id}/cost", tags=["baseline"])
 async def get_artifact_cost(
@@ -779,6 +755,10 @@ async def artifact_by_regex(
     request: Request = None,
     x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
 ):
+    logger.info(f"[BYREGEX] method={request.method} path={request.url.path}")
+    logger.info(f"[BYREGEX] raw_body={body!r}")
+    logger.info(f"[BYREGEX] query_params={dict(request.query_params)}")
+
     # 1) Try to get pattern from JSON body by accepting common keys
     pattern: Optional[str] = None
     if isinstance(body, str):
@@ -799,8 +779,8 @@ async def artifact_by_regex(
             or qp.get("regex")
             or qp.get("regEx")
             or qp.get("name")
-        )
-
+            )
+    logger.info(f"[BYREGEX] extracted_pattern={pattern!r}")
     # 3) If no pattern, return all artifacts
     # The spec says "Get any artifacts fitting the regular expression" – if no regex,
     # safest for autograder is usually "return all".
@@ -814,19 +794,22 @@ async def artifact_by_regex(
     if not pattern_anchored.endswith("$"):
         pattern_anchored = pattern_anchored + "$"
 
+    logger.info(f"[BYREGEX] anchored_pattern={pattern_anchored!r}")
     # 5) Compile anchored regex
     try:
         regex = re.compile(pattern_anchored)
     except re.error:
+        logger.error(f"[BYREGEX] regex_compile_error: {e}")
         raise HTTPException(status_code=400, detail="Invalid regex pattern")
 
     # 6) Filter by name: only include exact pattern matches
     selected: list[dict[str, str]] = []
     for stored in ARTIFACTS.values():
+        logger.info(f"[BYREGEX] MATCH name={name!r}")
         name = stored["metadata"]["name"]
         if regex.search(name):
             selected.append(stored["metadata"])
-
+    logger.info(f"[BYREGEX] returning {len(selected)} matches")
     return selected
 
 

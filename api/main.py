@@ -35,6 +35,16 @@ def download_logs():
             return PlainTextResponse(f.read())
     except Exception as e:
         return PlainTextResponse("ERROR: " + str(e), status_code=500)
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info(
+        f"[REQ] {request.method} {request.url.path} "
+        f"query={dict(request.query_params)}"
+    )
+    response = await call_next(request)
+    logger.info(f"[RESP] {request.method} {request.url.path} -> {response.status_code}")
+    return response
+
 def _canonicalize_name(name: str) -> str:
     """
     Fix up special benchmark names so they exactly match
@@ -798,16 +808,19 @@ async def artifact_by_regex(
     # 5) Compile anchored regex
     try:
         regex = re.compile(pattern_anchored)
-    except re.error:
+    except re.error as e:
         logger.error(f"[BYREGEX] regex_compile_error: {e}")
-        raise HTTPException(status_code=400, detail="Invalid regex pattern")
+        raise HTTPException(
+            status_code=400,
+            #detail="There is missing field(s) in the artifact_regex or it is formed improperly, or is invalid",
+        )
 
     # 6) Filter by name: only include exact pattern matches
     selected: list[dict[str, str]] = []
     for stored in ARTIFACTS.values():
-        logger.info(f"[BYREGEX] MATCH name={name!r}")
         name = stored["metadata"]["name"]
         if regex.search(name):
+            logger.info(f"[BYREGEX] MATCH name={name!r}")
             selected.append(stored["metadata"])
     logger.info(f"[BYREGEX] returning {len(selected)} matches")
     return selected

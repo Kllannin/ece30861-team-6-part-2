@@ -266,107 +266,6 @@ def system_reset(x_authorization: Optional[str] = Header(None, alias="X-Authoriz
     _do_reset()
     return {"status": "reset"}
 
-#----------RegEX
-
-@app.post("/artifact/byRegEx", tags=["baseline"])
-async def artifact_by_regex(
-    request: Request,
-    x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
-):
-    logger.info(f"[BYREGEX] method={request.method} path={request.url.path}")
-    logger.info(f"[BYREGEX] query_params={dict(request.query_params)}")
-
-    # --- 1) Try to read body in a very forgiving way -------------------------
-    try:
-        body: Any = await request.json()
-    except Exception:
-        # could be empty body, plain text, invalid JSON, etc.
-        raw = await request.body()
-        body = raw.decode("utf-8") if raw else None
-
-    logger.info(f"[BYREGEX] raw_body={body!r}")
-
-    pattern: Optional[str] = None
-
-    # body can be: string, dict, nested dict, etc.
-    if isinstance(body, str):
-        # plain string body -> treat as regex
-        pattern = body
-
-    elif isinstance(body, dict):
-        # try top-level keys
-        pattern = (
-            body.get("pattern")
-            or body.get("regex")
-            or body.get("regEx")
-            or body.get("name")
-        )
-
-        # also handle a nested object like {"artifact_regEx": {"name": "..."}}
-        if not pattern:
-            nested = (
-                body.get("artifact_regEx")
-                or body.get("artifact_regex")
-                or body.get("artifactRegex")
-                or body.get("artifact")
-            )
-            if isinstance(nested, dict):
-                pattern = (
-                    nested.get("pattern")
-                    or nested.get("regex")
-                    or nested.get("regEx")
-                    or nested.get("name")
-                )
-
-    # --- 2) Fall back to query params (?pattern=, ?regex=, ?name=) -----------
-    if not pattern:
-        qp = request.query_params
-        pattern = (
-            qp.get("pattern")
-            or qp.get("regex")
-            or qp.get("regEx")
-            or qp.get("name")
-        )
-
-    logger.info(f"[BYREGEX] extracted_pattern={pattern!r}")
-
-    # --- 3) If no pattern, return all artifacts ------------------------------
-    if not pattern:
-        logger.info("[BYREGEX] no pattern provided – returning all artifacts")
-        return [a["metadata"] for a in ARTIFACTS.values()]
-
-    # --- 4) Anchor the regex if not already anchored ------------------------
-    pattern_anchored = str(pattern)
-    if not pattern_anchored.startswith("^"):
-        pattern_anchored = "^" + pattern_anchored
-    if not pattern_anchored.endswith("$"):
-        pattern_anchored = pattern_anchored + "$"
-
-    logger.info(f"[BYREGEX] anchored_pattern={pattern_anchored!r}")
-
-    # --- 5) Compile regex ----------------------------------------------------
-    try:
-        regex = re.compile(pattern_anchored)
-    except re.error as e:
-        logger.error(f"[BYREGEX] regex_compile_error: {e}")
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "There is missing field(s) in the artifact_regex or "
-                "it is formed improperly, or is invalid"
-            ),
-        )
-
-    # --- 6) Filter artifacts by name ----------------------------------------
-    selected: list[dict[str, str]] = []
-    for stored in ARTIFACTS.values():
-        name = stored["metadata"]["name"]
-        if regex.search(name):
-            logger.info(f"[BYREGEX] MATCH name={name!r}")
-            selected.append(stored["metadata"])
-
-    logger.info(f"[BYREGEX] returning {len(selected)} matches")
-    return selected
 
 # --------------------------------------------------------------------
 # Artifact creation (ingest) – BASELINE
@@ -858,6 +757,108 @@ async def license_check(
         "compatible": True,
         "reason": "Dummy implementation – assumed compatible.",
     }
+
+
+@app.post("/artifact/byRegEx", tags=["baseline"])
+async def artifact_by_regex(
+    request: Request,
+    x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
+):
+    logger.info(f"[BYREGEX] method={request.method} path={request.url.path}")
+    logger.info(f"[BYREGEX] query_params={dict(request.query_params)}")
+
+    # --- 1) Try to read body in a very forgiving way -------------------------
+    try:
+        body: Any = await request.json()
+    except Exception:
+        # could be empty body, plain text, invalid JSON, etc.
+        raw = await request.body()
+        body = raw.decode("utf-8") if raw else None
+
+    logger.info(f"[BYREGEX] raw_body={body!r}")
+
+    pattern: Optional[str] = None
+
+    # body can be: string, dict, nested dict, etc.
+    if isinstance(body, str):
+        # plain string body -> treat as regex
+        pattern = body
+
+    elif isinstance(body, dict):
+        # try top-level keys
+        pattern = (
+            body.get("pattern")
+            or body.get("regex")
+            or body.get("regEx")
+            or body.get("name")
+        )
+
+        # also handle a nested object like {"artifact_regEx": {"name": "..."}}
+        if not pattern:
+            nested = (
+                body.get("artifact_regEx")
+                or body.get("artifact_regex")
+                or body.get("artifactRegex")
+                or body.get("artifact")
+            )
+            if isinstance(nested, dict):
+                pattern = (
+                    nested.get("pattern")
+                    or nested.get("regex")
+                    or nested.get("regEx")
+                    or nested.get("name")
+                )
+
+    # --- 2) Fall back to query params (?pattern=, ?regex=, ?name=) -----------
+    if not pattern:
+        qp = request.query_params
+        pattern = (
+            qp.get("pattern")
+            or qp.get("regex")
+            or qp.get("regEx")
+            or qp.get("name")
+        )
+
+    logger.info(f"[BYREGEX] extracted_pattern={pattern!r}")
+
+    # --- 3) If no pattern, return all artifacts ------------------------------
+    if not pattern:
+        logger.info("[BYREGEX] no pattern provided – returning all artifacts")
+        return [a["metadata"] for a in ARTIFACTS.values()]
+
+    # --- 4) Anchor the regex if not already anchored ------------------------
+    pattern_anchored = str(pattern)
+    if not pattern_anchored.startswith("^"):
+        pattern_anchored = "^" + pattern_anchored
+    if not pattern_anchored.endswith("$"):
+        pattern_anchored = pattern_anchored + "$"
+
+    logger.info(f"[BYREGEX] anchored_pattern={pattern_anchored!r}")
+
+    # --- 5) Compile regex ----------------------------------------------------
+    try:
+        regex = re.compile(pattern_anchored)
+    except re.error as e:
+        logger.error(f"[BYREGEX] regex_compile_error: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "There is missing field(s) in the artifact_regex or "
+                "it is formed improperly, or is invalid"
+            ),
+        )
+
+    # --- 6) Filter artifacts by name ----------------------------------------
+    selected: list[dict[str, str]] = []
+    for stored in ARTIFACTS.values():
+        name = stored["metadata"]["name"]
+        if regex.search(name):
+            logger.info(f"[BYREGEX] MATCH name={name!r}")
+            selected.append(stored["metadata"])
+
+    logger.info(f"[BYREGEX] returning {len(selected)} matches")
+    return selected
+
 
 # --------------------------------------------------------------------
 # Non-baseline extras (stubs)

@@ -282,6 +282,95 @@ def system_reset(x_authorization: Optional[str] = Header(None, alias="X-Authoriz
 # Artifact creation (ingest) – BASELINE
 # POST /artifact/{artifact_type}
 # --------------------------------------------------------------------
+@app.post("/artifact/byRegEx", tags=["baseline"])
+async def artifact_by_regex(request: Request):
+    logger.info(f"[BYREGEX] method={request.method} path={request.url.path}")
+    logger.info(f"[BYREGEX] query_params={dict(request.query_params)}")
+
+    # 1) Read raw body, but don’t *require* that it’s JSON
+    try:
+        body: Any = await request.json()
+    except Exception:
+        raw = await request.body()
+        body = raw.decode("utf-8") if raw else None
+
+    logger.info(f"[BYREGEX] raw_body={body!r}")
+
+    # 2) Extract pattern from body
+    pattern: Optional[str] = None
+
+    if isinstance(body, str):
+        pattern = body
+    elif isinstance(body, dict):
+        pattern = (
+            body.get("pattern")
+            or body.get("regex")
+            or body.get("regEx")
+            or body.get("name")
+        )
+        if not pattern:
+            nested = (
+                body.get("artifact_regEx")
+                or body.get("artifact_regex")
+                or body.get("artifactRegex")
+                or body.get("artifact")
+            )
+            if isinstance(nested, dict):
+                pattern = (
+                    nested.get("pattern")
+                    or nested.get("regex")
+                    or nested.get("regEx")
+                    or nested.get("name")
+                )
+
+    # 3) Fallback to query params
+    if not pattern:
+        qp = request.query_params
+        pattern = (
+            qp.get("pattern")
+            or qp.get("regex")
+            or qp.get("regEx")
+            or qp.get("name")
+        )
+
+    logger.info(f"[BYREGEX] extracted_pattern={pattern!r}")
+
+    # 4) No pattern ⇒ return all artifacts
+    if not pattern:
+        logger.info("[BYREGEX] no pattern provided – returning all artifacts")
+        return [a["metadata"] for a in ARTIFACTS.values()]
+
+    # 5) Anchor + compile
+    pattern_anchored = str(pattern)
+    if not pattern_anchored.startswith("^"):
+        pattern_anchored = "^" + pattern_anchored
+    if not pattern_anchored.endswith("$"):
+        pattern_anchored = pattern_anchored + "$"
+
+    logger.info(f"[BYREGEX] anchored_pattern={pattern_anchored!r}")
+
+    try:
+        regex = re.compile(pattern_anchored)
+    except re.error as e:
+        logger.error(f"[BYREGEX] regex_compile_error: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "There is missing field(s) in the artifact_regex or "
+                "it is formed improperly, or is invalid"
+            ),
+        )
+
+    # 6) Filter by name
+    selected: list[dict[str, str]] = []
+    for stored in ARTIFACTS.values():
+        name = stored["metadata"]["name"]
+        if regex.search(name):
+            logger.info(f"[BYREGEX] MATCH name={name!r}")
+            selected.append(stored["metadata"])
+
+    logger.info(f"[BYREGEX] returning {len(selected)} matches")
+    return selected
 
 from urllib.parse import urlparse
 from typing import Optional
@@ -768,97 +857,6 @@ async def license_check(
         "compatible": True,
         "reason": "Dummy implementation – assumed compatible.",
     }
-
-
-@app.post("/artifact/byRegEx", tags=["baseline"])
-async def artifact_by_regex(request: Request):
-    logger.info(f"[BYREGEX] method={request.method} path={request.url.path}")
-    logger.info(f"[BYREGEX] query_params={dict(request.query_params)}")
-
-    # 1) Read raw body, but don’t *require* that it’s JSON
-    try:
-        body: Any = await request.json()
-    except Exception:
-        raw = await request.body()
-        body = raw.decode("utf-8") if raw else None
-
-    logger.info(f"[BYREGEX] raw_body={body!r}")
-
-    # 2) Extract pattern from body
-    pattern: Optional[str] = None
-
-    if isinstance(body, str):
-        pattern = body
-    elif isinstance(body, dict):
-        pattern = (
-            body.get("pattern")
-            or body.get("regex")
-            or body.get("regEx")
-            or body.get("name")
-        )
-        if not pattern:
-            nested = (
-                body.get("artifact_regEx")
-                or body.get("artifact_regex")
-                or body.get("artifactRegex")
-                or body.get("artifact")
-            )
-            if isinstance(nested, dict):
-                pattern = (
-                    nested.get("pattern")
-                    or nested.get("regex")
-                    or nested.get("regEx")
-                    or nested.get("name")
-                )
-
-    # 3) Fallback to query params
-    if not pattern:
-        qp = request.query_params
-        pattern = (
-            qp.get("pattern")
-            or qp.get("regex")
-            or qp.get("regEx")
-            or qp.get("name")
-        )
-
-    logger.info(f"[BYREGEX] extracted_pattern={pattern!r}")
-
-    # 4) No pattern ⇒ return all artifacts
-    if not pattern:
-        logger.info("[BYREGEX] no pattern provided – returning all artifacts")
-        return [a["metadata"] for a in ARTIFACTS.values()]
-
-    # 5) Anchor + compile
-    pattern_anchored = str(pattern)
-    if not pattern_anchored.startswith("^"):
-        pattern_anchored = "^" + pattern_anchored
-    if not pattern_anchored.endswith("$"):
-        pattern_anchored = pattern_anchored + "$"
-
-    logger.info(f"[BYREGEX] anchored_pattern={pattern_anchored!r}")
-
-    try:
-        regex = re.compile(pattern_anchored)
-    except re.error as e:
-        logger.error(f"[BYREGEX] regex_compile_error: {e}")
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "There is missing field(s) in the artifact_regex or "
-                "it is formed improperly, or is invalid"
-            ),
-        )
-
-    # 6) Filter by name
-    selected: list[dict[str, str]] = []
-    for stored in ARTIFACTS.values():
-        name = stored["metadata"]["name"]
-        if regex.search(name):
-            logger.info(f"[BYREGEX] MATCH name={name!r}")
-            selected.append(stored["metadata"])
-
-    logger.info(f"[BYREGEX] returning {len(selected)} matches")
-    return selected
 
 
 

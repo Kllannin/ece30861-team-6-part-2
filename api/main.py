@@ -760,40 +760,31 @@ async def license_check(
 
 
 @app.post("/artifact/byRegEx", tags=["baseline"])
-async def artifact_by_regex(
-    request: Request,
-    x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
-):
+async def artifact_by_regex(request: Request):
     logger.info(f"[BYREGEX] method={request.method} path={request.url.path}")
     logger.info(f"[BYREGEX] query_params={dict(request.query_params)}")
 
-    # --- 1) Try to read body in a very forgiving way -------------------------
+    # 1) Read raw body, but don’t *require* that it’s JSON
     try:
         body: Any = await request.json()
     except Exception:
-        # could be empty body, plain text, invalid JSON, etc.
         raw = await request.body()
         body = raw.decode("utf-8") if raw else None
 
     logger.info(f"[BYREGEX] raw_body={body!r}")
 
+    # 2) Extract pattern from body
     pattern: Optional[str] = None
 
-    # body can be: string, dict, nested dict, etc.
     if isinstance(body, str):
-        # plain string body -> treat as regex
         pattern = body
-
     elif isinstance(body, dict):
-        # try top-level keys
         pattern = (
             body.get("pattern")
             or body.get("regex")
             or body.get("regEx")
             or body.get("name")
         )
-
-        # also handle a nested object like {"artifact_regEx": {"name": "..."}}
         if not pattern:
             nested = (
                 body.get("artifact_regEx")
@@ -809,7 +800,7 @@ async def artifact_by_regex(
                     or nested.get("name")
                 )
 
-    # --- 2) Fall back to query params (?pattern=, ?regex=, ?name=) -----------
+    # 3) Fallback to query params
     if not pattern:
         qp = request.query_params
         pattern = (
@@ -821,12 +812,12 @@ async def artifact_by_regex(
 
     logger.info(f"[BYREGEX] extracted_pattern={pattern!r}")
 
-    # --- 3) If no pattern, return all artifacts ------------------------------
+    # 4) No pattern ⇒ return all artifacts
     if not pattern:
         logger.info("[BYREGEX] no pattern provided – returning all artifacts")
         return [a["metadata"] for a in ARTIFACTS.values()]
 
-    # --- 4) Anchor the regex if not already anchored ------------------------
+    # 5) Anchor + compile
     pattern_anchored = str(pattern)
     if not pattern_anchored.startswith("^"):
         pattern_anchored = "^" + pattern_anchored
@@ -835,7 +826,6 @@ async def artifact_by_regex(
 
     logger.info(f"[BYREGEX] anchored_pattern={pattern_anchored!r}")
 
-    # --- 5) Compile regex ----------------------------------------------------
     try:
         regex = re.compile(pattern_anchored)
     except re.error as e:
@@ -848,7 +838,7 @@ async def artifact_by_regex(
             ),
         )
 
-    # --- 6) Filter artifacts by name ----------------------------------------
+    # 6) Filter by name
     selected: list[dict[str, str]] = []
     for stored in ARTIFACTS.values():
         name = stored["metadata"]["name"]
@@ -858,6 +848,7 @@ async def artifact_by_regex(
 
     logger.info(f"[BYREGEX] returning {len(selected)} matches")
     return selected
+
 
 
 # --------------------------------------------------------------------

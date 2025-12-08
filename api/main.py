@@ -3,6 +3,9 @@
 from fastapi import FastAPI, UploadFile, File, Header, HTTPException, Body,Request
 from pydantic import BaseModel
 from fastapi.responses import PlainTextResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
+
 from urllib.parse import urlparse
 import time
 from typing import List, Dict, Optional, Any
@@ -44,6 +47,14 @@ async def log_requests(request: Request, call_next):
     response = await call_next(request)
     logger.info(f"[RESP] {request.method} {request.url.path} -> {response.status_code}")
     return response
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.error(
+        f"[VALIDATION ERROR] path={request.url.path} "
+        f"errors={exc.errors()} body={getattr(exc, 'body', None)}"
+    )
+    return await request_validation_exception_handler(request, exc)
 
 def _canonicalize_name(name: str) -> str:
     """

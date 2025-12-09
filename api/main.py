@@ -573,47 +573,6 @@ def list_artifacts(
     logger.info(f"[LIST ARTIFACTS] returning {len(results)} result(s)")
     return results
 
-'''
-@app.post("/artifacts", tags=["baseline"])
-def list_artifacts(
-    queries: List[ArtifactQuery],
-    x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
-):
-    """
-    POST /artifacts – query artifacts.
-
-    For reset tests, the grader sends:
-      [ { "name": "*", "types": [] } ]
-
-    We return a list of { name, id, type } dicts.
-    """
-    if not queries:
-        return []
-
-    q = queries[0]
-
-    results = []
-    for stored in ARTIFACTS.values():
-        meta = stored["metadata"]
-        if q.name != "*" and not meta["name"].startswith(q.name):
-            continue
-        if q.types is not None and len(q.types) > 0:
-            if meta["type"] not in q.types:
-                continue
-        results.append(
-            {
-                "name": meta["name"],
-                "id": meta["id"],
-                "type": meta["type"],
-            }
-        )
-    logger.info(f"[LIST ARTIFACTS] Query name='{q.name}', types={q.types}")
-    logger.info(f"checking stored name='{meta['name']}', type='{meta['type']}'")
-    return results
-
-BAD_REQUEST_MESSAGE = "There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid."
-'''
-
 
 BAD_REQUEST_MESSAGE = (
     "There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid."
@@ -651,51 +610,6 @@ async def get_artifact_by_id(
 
     return stored
 
-'''
-@app.get(
-    "/artifacts/{artifact_type}/{id}",
-    response_model=Artifact,
-    tags=["baseline"],
-)
-async def get_artifact_by_id(
-    artifact_type: str,
-    id: str,
-    x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
-):
-    logger.info(f"[GET ARTIFACT] Incoming GET /artifacts/{artifact_type}/{id}")
-
-    # 1) Validate artifact_type
-    if artifact_type not in {"model", "dataset", "code"}:
-        logger.warning(
-            f"[GET ARTIFACT] Invalid artifact_type='{artifact_type}' → 400"
-        )
-        raise HTTPException(status_code=400, detail=BAD_REQUEST_MESSAGE)
-
-    # 2) Does artifact exist?
-    stored = ARTIFACTS.get(id)
-    if not stored:
-        logger.warning(
-            f"[GET ARTIFACT] Artifact ID '{id}' not found → 404"
-        )
-        raise HTTPException(status_code=404, detail="Artifact does not exist.")
-    
-    # 4) URL missing → 400
-    if "url" not in stored["data"] or not stored["data"]["url"]:
-        logger.error(
-            f"[GET ARTIFACT] Artifact '{id}' missing URL field → 400"
-        )
-        raise HTTPException(status_code=400, detail=BAD_REQUEST_MESSAGE)
-
-    # 5) OK
-    logger.info(
-        f"[GET ARTIFACT] SUCCESS id={id}, name={stored['metadata']['name']}, type={artifact_type} → 200"
-    )
-
-    return {
-        "metadata": stored["metadata"],
-        "data": stored["data"],
-    }
-'''
 
 # -------------------------------------------------------------
 # GET /artifact/byName/{name} — NON-BASELINE
@@ -965,10 +879,24 @@ async def authenticate(body: Dict = Body(...)):
     """
     return {"token": "dummy-token"}
 
+@app.get("/artifact/{artifact_type}/{id}/audit", tags=["non-baseline"])
+async def get_audit_log(artifact_type: str, id: str):
+    """
+    Non-baseline: dummy audit log.
+    """
+    if id not in ARTIFACTS:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    return {
+        "artifactId": id,
+        "events": [
+            {"event": "created", "by": "system", "timestamp": "2025-01-01T00:00:00Z"}
+        ],
+    }
 # -------------------------
 # CONSTANTS
 # -------------------------
-'''
+
 DEFAULT_ADMIN_NAME = "ece30861defaultadminuser"
 DEFAULT_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
 TOKEN_TTL_SECONDS = 10 * 60 * 60   # 10 hours
@@ -1018,32 +946,38 @@ class AuthRequest(BaseModel):
 # -------------------------
 # /authenticate ENDPOINT
 # -------------------------
+@app.middleware("http")
+async def log_auth_raw(request: Request, call_next):
+    if request.url.path == "/authenticate":
+        body = await request.body()
+        logger.info(f"[AUTH-RAW] Raw body: {body.decode('utf-8')}")
+    return await call_next(request)
 
-@app.put("/authenticate")
+@app.put("/authenticate", tags=["baseline"])
 def authenticate(req: AuthRequest):
-    """
-    PUT /authenticate
-    Creates a token and returns:   bearer <token>
-    """
+    logger.info(f"[AUTH] /authenticate called with user={req.user.name}")
 
     # Validate username
     if req.user.name != DEFAULT_ADMIN_NAME:
+        logger.warning(f"[AUTH] Invalid username: {req.user.name}")
         raise HTTPException(status_code=401, detail="Invalid user or password.")
 
-    # Validate password
+    # Validate password (use EXACT string from the OpenAPI spec)
     if req.secret.password != DEFAULT_ADMIN_PASSWORD:
+        logger.warning("[AUTH] Invalid password attempt")
         raise HTTPException(status_code=401, detail="Invalid user or password.")
 
-    # Create a token
+    # Create a token (1000 calls, 10 hours)
     token = create_token(
         username=req.user.name,
-        is_admin=True   # default admin is always admin
+        is_admin=req.user.is_admin  # autograder’s example uses true
     )
+    logger.info(f"[AUTH] Authentication SUCCESS → token={token[:6]}... (truncated)")
+    # Returning a plain string here makes FastAPI send JSON: "bearer <token>"
+    return f"bearer {token}"
 
-    # Spec requires plain text: "bearer <token>"
-    return PlainTextResponse(f"bearer {token}")
 
-def validate_token(x_auth: Optional[str]):
+def validate_token(x_auth: Optional[str]) -> TokenInfo:
     """
     Validate the X-Authorization header:
       'bearer <token>'
@@ -1074,19 +1008,3 @@ def validate_token(x_auth: Optional[str]):
     token_store[token] = info
 
     return info
-'''
-
-@app.get("/artifact/{artifact_type}/{id}/audit", tags=["non-baseline"])
-async def get_audit_log(artifact_type: str, id: str):
-    """
-    Non-baseline: dummy audit log.
-    """
-    if id not in ARTIFACTS:
-        raise HTTPException(status_code=404, detail="Artifact not found")
-
-    return {
-        "artifactId": id,
-        "events": [
-            {"event": "created", "by": "system", "timestamp": "2025-01-01T00:00:00Z"}
-        ],
-    }

@@ -838,28 +838,72 @@ async def get_model_rate(
         "size_score_latency": 0.01,
     }
 
+from typing import Optional
+import os
+from fastapi import HTTPException, Header
+
+# ... keep your existing BAD_REQUEST_MESSAGE ...
 
 @app.get("/artifact/{artifact_type}/{id}/cost", tags=["baseline"])
 async def get_artifact_cost(
     artifact_type: str,
     id: str,
+    dependency: bool = False,
     x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
 ):
     """
-    Cost based on file size; for empty placeholder files this will be 0.
+    Spec-compliant cost endpoint.
+
+    Returns an ArtifactCost object:
+
+      {
+        "<id>": { "total_cost": <float> }                       # dependency = false
+        "<id>": { "standalone_cost": <float>, "total_cost": <float> }  # dependency = true
+      }
+
+    For this baseline, we treat cost as the download size in MB of the stored file,
+    and we do NOT model any dependencies yet.
     """
+
+    # 1) Validate artifact_type per spec
+    if artifact_type not in {"model", "dataset", "code"}:
+        raise HTTPException(status_code=400, detail=BAD_REQUEST_MESSAGE)
+
+    # 2) Ensure artifact exists
     stored = ARTIFACTS.get(id)
     if not stored:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+        # Match other endpoints' wording; spec says "Artifact does not exist."
+        raise HTTPException(status_code=404, detail="Artifact does not exist.")
 
+    # 3) Compute standalone cost from file size (in MB)
     file_path = stored.get("file_path")
-    size_bytes = os.path.getsize(file_path) if file_path and os.path.exists(file_path) else 0
+    if file_path and os.path.exists(file_path):
+        size_bytes = os.path.getsize(file_path)
+    else:
+        size_bytes = 0
 
-    return {
-        "id": id,
-        "type": stored["metadata"]["type"],
-        "sizeBytes": size_bytes,
-    }
+    # convert bytes -> megabytes; float is fine
+    standalone_cost = size_bytes / (1024 * 1024)
+
+    # 4) Build ArtifactCost response shape
+    if not dependency:
+        # No dependencies: only total_cost required
+        return {
+            id: {
+                "total_cost": standalone_cost,
+            }
+        }
+    else:
+        # With dependencies: standalone_cost is required for each entry.
+        # For this baseline, we don't actually add children, so the "dependency"
+        # flag just means "also include standalone_cost".
+        return {
+            id: {
+                "standalone_cost": standalone_cost,
+                "total_cost": standalone_cost,
+            }
+        }
+
 
 
 @app.get("/artifact/model/{id}/lineage", tags=["baseline"])

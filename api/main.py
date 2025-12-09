@@ -872,13 +872,6 @@ async def license_check(
 # Non-baseline extras (stubs)
 # --------------------------------------------------------------------
 
-@app.put("/authenticate", tags=["non-baseline"])
-async def authenticate(body: Dict = Body(...)):
-    """
-    Non-baseline stub – pretend authentication succeeded and return a token.
-    """
-    return {"token": "dummy-token"}
-
 @app.get("/artifact/{artifact_type}/{id}/audit", tags=["non-baseline"])
 async def get_audit_log(artifact_type: str, id: str):
     """

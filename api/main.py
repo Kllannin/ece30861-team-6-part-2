@@ -399,11 +399,16 @@ async def artifact_by_regex(
             selected.append(meta)
 
 
-    if not selected:
-        raise HTTPException(status_code=404, detail="No artifact found under this regex.")
-
     logger.info(f"[BYREGEX] returning {len(selected)} matches")
+
+    for meta in selected:
+        name = meta.get("name")
+        art_id = meta.get("id")
+        art_type = meta.get("type")
+        logger.info(f"[BYREGEX] → returning artifact name={name!r}, id={art_id!r}, type={art_type!r}")
+
     return selected
+
 
 
 # --------------------------------------------------------------------

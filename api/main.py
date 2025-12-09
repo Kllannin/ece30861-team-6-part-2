@@ -193,6 +193,9 @@ class ArtifactData(BaseModel):
     url: str
     download_url: Optional[str] = None
 
+    class Config:
+        extra = "allow"
+
 
 class ArtifactMetadata(BaseModel):
     name: str
@@ -373,16 +376,32 @@ async def artifact_by_regex(
 
     selected: list[dict[str, str]] = []
     for stored in ARTIFACTS.values():
-        name = stored["metadata"]["name"]
-        if regex.search(name):
+        meta = stored["metadata"]
+        data = stored.get("data", {})
+
+        name = meta.get("name", "")
+        matched = False
+
+        # 1) Match against the artifact name (preserves your current behavior)
+        if isinstance(name, str) and regex.search(name):
+            matched = True
+
+        # 2) Also match against any string fields in data (URL, README, etc.)
+        if not matched and isinstance(data, dict):
+            for v in data.values():
+                if isinstance(v, str) and regex.search(v):
+                    matched = True
+                    break
+
+        if matched:
             logger.info(f"[BYREGEX] MATCH name={name!r}")
-            selected.append(stored["metadata"])
+            selected.append(meta)
 
-    if not selected:
-        raise HTTPException(status_code=404, detail="No artifact found under this regex.")
+        if not selected:
+            raise HTTPException(status_code=404, detail="No artifact found under this regex.")
 
-    logger.info(f"[BYREGEX] returning {len(selected)} matches")
-    return selected
+        logger.info(f"[BYREGEX] returning {len(selected)} matches")
+        return selected
 
 # --------------------------------------------------------------------
 # Artifact creation (ingest) – BASELINE
@@ -433,10 +452,11 @@ async def create_artifact(
         id=artifact_id,
         type=artifact_type,
     )
-    data_with_download = ArtifactData(
-        url=data.url,
-        download_url=download_url,
-    )
+
+    # Start from the original data, preserving any extras (like README)
+    data_with_download = data.copy()
+    data_with_download.download_url = download_url
+
 
     artifact = Artifact(
         metadata=metadata,

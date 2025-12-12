@@ -727,9 +727,10 @@ async def get_model_rate(
 
     logger.info(f"[RATE] Running metrics for model {id} with URL: {model_url}")
     
-    # Create a temporary file with the model URL
+    # Create a temporary file with the model URL in the correct format
+    # Format: code_link,dataset_link,model_link (empty fields allowed)
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write(model_url + '\n')
+        f.write(f",,{model_url}\n")  # Empty code and dataset, just model URL
         temp_file = f.name
     
     try:

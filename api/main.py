@@ -788,21 +788,12 @@ async def get_model_rate(
                 "size_score_latency": 0.01,
             }
         
+        ''' here
         # Parse the JSON output from run.py
         if result.stdout:
             try:
                 output = json.loads(result.stdout.strip())
-                #logger.info(f"[RATE] Successfully parsed metrics output")
-
-                logger.info(f"[RATE] Parsed type: {type(output)}")
-
-                if isinstance(output, dict):
-                    logger.info(f"[RATE] Keys: {list(output.keys())}")
-                    logger.info(f"[RATE] Preview: {str(output)[:400]}")
-                else:
-                    logger.info(f"[RATE] Non-dict output preview: {str(output)[:400]}")
-
-
+                logger.info(f"[RATE] Successfully parsed metrics output")
                 
                 # Map the output format to the expected API response format
                 response = {
@@ -839,6 +830,102 @@ async def get_model_rate(
                     "size_score_latency": output.get("size_score_latency", 0.0),
                 }
                 
+                return response
+            '''
+        if result.stdout:
+            try:
+                # ---- Parse stdout safely (handles NDJSON) ----
+                lines = [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
+
+                # Find the last JSON object line (most likely the model record)
+                output = None
+                for ln in reversed(lines):
+                    if ln.startswith("{") and ln.endswith("}"):
+                        try:
+                            output = json.loads(ln)
+                            break
+                        except json.JSONDecodeError:
+                            continue
+
+                # Fallback: try parsing whole stdout as a single JSON blob
+                if output is None:
+                    output = json.loads(result.stdout.strip())
+
+                # ---- Normalize shape ----
+                # run.py usually prints: {"name":..., "category":..., "scores":{...}, "latency":{...}}
+                if isinstance(output, dict):
+                    scores = output.get("scores", output) or {}
+                    lat = output.get("latency", {}) or {}
+                else:
+                    scores = {}
+                    lat = {}
+
+                # ---- Extract size_score robustly ----
+                size_score = (
+                    scores.get("size_score")
+                    or output.get("size_score") if isinstance(output, dict) else None
+                )
+
+                # Some implementations name it differently (just in case)
+                if size_score is None and isinstance(scores.get("size"), dict):
+                    size_score = scores.get("size")
+
+                if not isinstance(size_score, dict):
+                    size_score = {
+                        "raspberry_pi": 0.0,
+                        "jetson_nano": 0.0,
+                        "desktop_pc": 0.0,
+                        "aws_server": 0.0,
+                    }
+
+                # ---- Build response using scores/latency ----
+                response = {
+                    "name": meta["name"],
+                    "category": "model",
+
+                    "net_score": float(scores.get("net_score", 0.0)),
+                    "net_score_latency": float(lat.get("net_score", lat.get("net_score_latency", 0.0))),
+
+                    "ramp_up_time": float(scores.get("ramp_up_time", 0.0)),
+                    "ramp_up_time_latency": float(lat.get("ramp_up_time", lat.get("ramp_up_time_latency", 0.0))),
+
+                    "bus_factor": float(scores.get("bus_factor", 0.0)),
+                    "bus_factor_latency": float(lat.get("bus_factor", lat.get("bus_factor_latency", 0.0))),
+
+                    "performance_claims": float(scores.get("performance_claims", 0.0)),
+                    "performance_claims_latency": float(lat.get("performance_claims", lat.get("performance_claims_latency", 0.0))),
+
+                    "license": float(scores.get("license", 0.0)),
+                    "license_latency": float(lat.get("license", lat.get("license_latency", 0.0))),
+
+                    "dataset_and_code_score": float(scores.get("dataset_and_code_score", 0.0)),
+                    "dataset_and_code_score_latency": float(lat.get("dataset_and_code_score", lat.get("dataset_and_code_score_latency", 0.0))),
+
+                    "dataset_quality": float(scores.get("dataset_quality", 0.0)),
+                    "dataset_quality_latency": float(lat.get("dataset_quality", lat.get("dataset_quality_latency", 0.0))),
+
+                    "code_quality": float(scores.get("code_quality", 0.0)),
+                    "code_quality_latency": float(lat.get("code_quality", lat.get("code_quality_latency", 0.0))),
+
+                    "reproducibility": float(scores.get("reproducibility", 0.0)),
+                    "reproducibility_latency": float(lat.get("reproducibility", lat.get("reproducibility_latency", 0.0))),
+
+                    "reviewedness": float(scores.get("reviewedness", 0.0)),
+                    "reviewedness_latency": float(lat.get("reviewedness", lat.get("reviewedness_latency", 0.0))),
+
+                    # handle both spellings
+                    "tree_score": float(scores.get("treescore", scores.get("tree_score", 0.0))),
+                    "tree_score_latency": float(lat.get("treescore", lat.get("tree_score", lat.get("treescore_latency", lat.get("tree_score_latency", 0.0))))),
+
+                    "size_score": {
+                        "raspberry_pi": float(size_score.get("raspberry_pi", 0.0)),
+                        "jetson_nano": float(size_score.get("jetson_nano", 0.0)),
+                        "desktop_pc": float(size_score.get("desktop_pc", 0.0)),
+                        "aws_server": float(size_score.get("aws_server", 0.0)),
+                    },
+                    "size_score_latency": float(lat.get("size_score", lat.get("size_score_latency", 0.0))),
+                }
+
                 return response
                 
             except json.JSONDecodeError as e:

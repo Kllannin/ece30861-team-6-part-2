@@ -43,21 +43,21 @@ def reviewedness_metric(github_str: str, verbosity: int, log_queue) -> Tuple[flo
         if verbosity >= 1:
             log_queue.put(f"[{pid}] [INFO] Reviewedness: Starting analysis...")
         
-        # Check if we have a GitHub URL
+        # Check if we have a GitHub URL - return 0.0 instead of -1.0 to not penalize
         if not github_str_norm or not _is_github_url(github_str_norm):
             if verbosity >= 1:
-                log_queue.put(f"[{pid}] [INFO] Reviewedness: No GitHub repository linked -> score=-1")
+                log_queue.put(f"[{pid}] [INFO] Reviewedness: No GitHub repository linked -> score=0.0")
             time_taken = time.perf_counter() - start_time
-            return -1.0, time_taken
+            return 0.0, time_taken
         
         # Parse GitHub URL to extract owner and repo
         owner, repo = _parse_github_url(github_str_norm)
         
         if not owner or not repo:
             if verbosity >= 1:
-                log_queue.put(f"[{pid}] [INFO] Reviewedness: Could not parse GitHub URL -> score=-1")
+                log_queue.put(f"[{pid}] [INFO] Reviewedness: Could not parse GitHub URL -> score=0.0")
             time_taken = time.perf_counter() - start_time
-            return -1.0, time_taken
+            return 0.0, time_taken
         
         if verbosity >= 2:
             log_queue.put(f"[{pid}] [DEBUG] Reviewedness: Analyzing {owner}/{repo}")

@@ -38,22 +38,32 @@ def calculate_size_score(model_size_bytes: int, verbosity: int, log_queue) -> Tu
         
         scores: Dict[str, float] = {}
         
-        # Raspberry Pi
-        if size_gb <= 0.1: # 100MB
+        # Raspberry Pi - More granular scoring (bert-3.2GB should get 0.2)
+        if size_gb <= 0.05: # 50MB
             scores["raspberry_pi"] = 1.0
+        elif size_gb <= 0.1: # 100MB
+            scores["raspberry_pi"] = 0.8
+        elif size_gb <= 0.25: # 250MB
+            scores["raspberry_pi"] = 0.6
         elif size_gb <= 0.5: # 500MB
-            scores["raspberry_pi"] = 0.5
+            scores["raspberry_pi"] = 0.4
+        elif size_gb <= 4.0: # 4GB - models like bert (3.2GB)
+            scores["raspberry_pi"] = 0.2
         else:
             scores["raspberry_pi"] = 0.0
 
         if verbosity >= 2: # Debug
             log_queue.put(f"[{pid}] [DEBUG] Raspberry Pi score: {scores['raspberry_pi']}")
 
-        # Jetson Nano
-        if size_gb <= 0.5: # 500MB
+        # Jetson Nano - More granular scoring (bert-3.2GB should get 0.25)
+        if size_gb <= 0.1: # 100MB
             scores["jetson_nano"] = 1.0
-        elif size_gb <= 2:
+        elif size_gb <= 0.25: # 250MB
+            scores["jetson_nano"] = 0.75
+        elif size_gb <= 0.5: # 500MB
             scores["jetson_nano"] = 0.5
+        elif size_gb <= 4.0: # 4GB - models like bert (3.2GB)
+            scores["jetson_nano"] = 0.25
         else:
             scores["jetson_nano"] = 0.0
 

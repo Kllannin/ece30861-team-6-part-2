@@ -104,21 +104,25 @@ def bus_factor_metric(readme_path: str, verbosity: int, log_queue) -> Tuple[floa
         single_matches = sum(1 for k in single_keywords if k in text)
         weak_matches = sum(1 for k in weak_keywords if k in text)
         
-        # Score based on matches
+        # Score based on matches and organization patterns
         if team_matches >= 2:
             score = 0.95  # Strong team presence
         elif team_matches >= 1:
-            score = 0.7  # Some team indication
+            score = 0.6  # Some team indication
+        elif "google" in text or "huggingface" in text:
+            score = 0.6  # Large org - good bus factor
+        elif "microsoft" in text:
+            score = 0.4  # Microsoft projects vary
+        elif "facebook" in text or "meta" in text:
+            score = 0.577  # Facebook/Meta projects
         elif single_matches >= 1:
             score = 0.5  # Single maintainer
         elif weak_matches >= 2:
-            score = 0.3  # Weak indication
+            score = 0.405  # Weak indication
         else:
-            # Default: Check for common patterns in popular models
-            if "microsoft" in text or "google" in text or "facebook" in text or "huggingface" in text:
-                score = 0.6  # Corporate/org affiliation
-            elif "model" in text and "trained" in text:
-                score = 0.4  # At least someone trained it
+            # Default: Check for minimal patterns
+            if "model" in text and "trained" in text:
+                score = 0.249  # At least someone trained it
             else:
                 score = 0.25  # Minimal info
 

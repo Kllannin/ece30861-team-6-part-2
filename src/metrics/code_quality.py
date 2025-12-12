@@ -40,9 +40,9 @@ def code_quality(github_str: str, verbosity: int, log_queue) -> Tuple[float, flo
     
     # Case 2: Valid GitHub URL
     if github_str_norm_lower.startswith("https://github.com/") or github_str_norm_lower.startswith("http://github.com/"):
-        score = 0.5
+        score = 0.75
         if verbosity >= 1 and log_queue:
-            log_queue.put(f"[{pid}] code_quality: Github URL detected -> score=0.5")
+            log_queue.put(f"[{pid}] code_quality: Github URL detected -> score=0.75")
         time_taken_second = time.perf_counter() - start_time
         return score, time_taken_second
     

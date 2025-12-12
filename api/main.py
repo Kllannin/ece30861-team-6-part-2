@@ -708,49 +708,108 @@ async def get_model_rate(
     x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
 ):
     """
-    Dummy rating that matches the ModelRating schema exactly.
+    Rate a model by running the actual Phase 1 metrics.
     """
+    import subprocess
+    import json
+    import tempfile
 
     stored = ARTIFACTS.get(id)
     if not stored or stored["metadata"].get("type") != "model":
         raise HTTPException(status_code=404, detail="Artifact does not exist.")
 
     meta = stored["metadata"]
+    model_url = stored.get("data", {}).get("url")
+    
+    if not model_url:
+        logger.error(f"[RATE] No URL found for model {id}")
+        raise HTTPException(status_code=500, detail="Model URL not found")
 
-    # everything is fake but structurally correct
-    return {
-        "name": meta["name"],
-        "category": "model",
-        "net_score": 0.5,
-        "net_score_latency": 0.01,
-        "ramp_up_time": 0.5,
-        "ramp_up_time_latency": 0.01,
-        "bus_factor": 0.5,
-        "bus_factor_latency": 0.01,
-        "performance_claims": 0.5,
-        "performance_claims_latency": 0.01,
-        "license": 0.5,
-        "license_latency": 0.01,
-        "dataset_and_code_score": 0.5,
-        "dataset_and_code_score_latency": 0.01,
-        "dataset_quality": 0.5,
-        "dataset_quality_latency": 0.01,
-        "code_quality": 0.5,
-        "code_quality_latency": 0.01,
-        "reproducibility": 0.5,
-        "reproducibility_latency": 0.01,
-        "reviewedness": 0.5,
-        "reviewedness_latency": 0.01,
-        "tree_score": 0.5,
-        "tree_score_latency": 0.01,
-        "size_score": {
-            "raspberry_pi": 0.5,
-            "jetson_nano": 0.5,
-            "desktop_pc": 0.5,
-            "aws_server": 0.5,
-        },
-        "size_score_latency": 0.01,
-    }
+    logger.info(f"[RATE] Running metrics for model {id} with URL: {model_url}")
+    
+    # Create a temporary file with the model URL
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        f.write(model_url + '\n')
+        temp_file = f.name
+    
+    try:
+        # Run the Phase 1 metrics using run.py
+        result = subprocess.run(
+            ['python', '/app/run.py', temp_file],
+            capture_output=True,
+            text=True,
+            timeout=120  # 2 minute timeout
+        )
+        
+        logger.info(f"[RATE] run.py exit code: {result.returncode}")
+        logger.info(f"[RATE] stdout length: {len(result.stdout)}")
+        
+        if result.stderr:
+            logger.warning(f"[RATE] stderr: {result.stderr[:500]}")
+        
+        # Parse the JSON output from run.py
+        if result.stdout:
+            try:
+                output = json.loads(result.stdout.strip())
+                logger.info(f"[RATE] Successfully parsed metrics output")
+                
+                # Map the output format to the expected API response format
+                response = {
+                    "name": meta["name"],
+                    "category": "model",
+                    "net_score": output.get("net_score", 0.0),
+                    "net_score_latency": output.get("net_score_latency", 0.0),
+                    "ramp_up_time": output.get("ramp_up_time", 0.0),
+                    "ramp_up_time_latency": output.get("ramp_up_time_latency", 0.0),
+                    "bus_factor": output.get("bus_factor", 0.0),
+                    "bus_factor_latency": output.get("bus_factor_latency", 0.0),
+                    "performance_claims": output.get("performance_claims", 0.0),
+                    "performance_claims_latency": output.get("performance_claims_latency", 0.0),
+                    "license": output.get("license", 0.0),
+                    "license_latency": output.get("license_latency", 0.0),
+                    "dataset_and_code_score": output.get("dataset_and_code_score", 0.0),
+                    "dataset_and_code_score_latency": output.get("dataset_and_code_score_latency", 0.0),
+                    "dataset_quality": output.get("dataset_quality", 0.0),
+                    "dataset_quality_latency": output.get("dataset_quality_latency", 0.0),
+                    "code_quality": output.get("code_quality", 0.0),
+                    "code_quality_latency": output.get("code_quality_latency", 0.0),
+                    "reproducibility": output.get("reproducibility", 0.0),
+                    "reproducibility_latency": output.get("reproducibility_latency", 0.0),
+                    "reviewedness": output.get("reviewedness", 0.0),
+                    "reviewedness_latency": output.get("reviewedness_latency", 0.0),
+                    "tree_score": output.get("treescore", 0.0),
+                    "tree_score_latency": output.get("treescore_latency", 0.0),
+                    "size_score": output.get("size_score", {
+                        "raspberry_pi": 0.0,
+                        "jetson_nano": 0.0,
+                        "desktop_pc": 0.0,
+                        "aws_server": 0.0,
+                    }),
+                    "size_score_latency": output.get("size_score_latency", 0.0),
+                }
+                
+                return response
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"[RATE] Failed to parse JSON output: {e}")
+                logger.error(f"[RATE] Raw output: {result.stdout[:500]}")
+                raise HTTPException(status_code=500, detail="Failed to parse metrics output")
+        else:
+            logger.error(f"[RATE] No output from run.py")
+            raise HTTPException(status_code=500, detail="No metrics output")
+            
+    except subprocess.TimeoutExpired:
+        logger.error(f"[RATE] Timeout running metrics for model {id}")
+        raise HTTPException(status_code=500, detail="Metrics calculation timeout")
+    except Exception as e:
+        logger.error(f"[RATE] Error running metrics: {e}")
+        raise HTTPException(status_code=500, detail=f"Error running metrics: {str(e)}")
+    finally:
+        # Clean up temp file
+        try:
+            os.unlink(temp_file)
+        except:
+            pass
 
 from typing import Optional
 import os

@@ -1,0 +1,56 @@
+[INFO] Reading and parsing tasks from './tasks.txt'...
+[INFO] Queued: bus_factor_metric(...) with weight 3.0
+[INFO] Queued: calculate_license_score(...) with weight 3.0
+[INFO] Queued: calculate_size_score(...) with weight 1.0
+[INFO] Queued: code_quality(...) with weight 2.0
+[INFO] Queued: dataset_and_code_present(...) with weight 3.0
+[INFO] Queued: dataset_quality(...) with weight 2.0
+[INFO] Queued: rampup_time_metric(...) with weight 3.0
+[INFO] Queued: performance_claims_metric(...) with weight 2.0
+[INFO] Queued: reproducibility_metric(...) with weight 3.0
+[INFO] Queued: reviewedness_metric(...) with weight 2.0
+[INFO] Queued: treescore_metric(...) with weight 2.0
+[INFO] --- Starting all processes ---
+[INFO] --- Collecting results ---
+[19324] [INFO] Treescore: Starting lineage analysis...
+[1816] [INFO] Starting size score calculation for model of 3454102158.0 bytes...
+[1816] [INFO] Model size: 3.22 GB
+[1816] [DEBUG] Raspberry Pi score: 0.0
+[1816] [DEBUG] Jetson Nano score: 0.0
+[1816] [DEBUG] Desktop PC score: 1.0
+[1816] [DEBUG] AWS Server score: 1.0
+[1816] [INFO] Finished calculation. Average Score=0.50, Time=0.0030s
+[19324] [DEBUG] Treescore: Found 0 base model references
+[19324] [INFO] Treescore: Lineage depth = 1
+[19324] [DEBUG] Treescore components:
+[19324] [DEBUG]   lineage_documentation: 0.30 (weight: 0.4)
+[19324] [DEBUG]   base_model_reputation: 0.50 (weight: 0.3)
+[19324] [DEBUG]   lineage_detail: 0.00 (weight: 0.3)
+[19324] [DEBUG] Treescore total: 0.27
+[19324] [INFO] Treescore: Final score = 0.27
+[19324] [INFO] Finished treescore calculation. Score=0.27, Time=0.019s
+[6540] [INFO] Bus factor: reading 'tmp\\bert-base-uncased_README.md.txt'
+[6540] [INFO] Bus factor done in 0.002s (score=1.00)
+[3708] code_quality: Github URL detected -> score=0.5
+[30232] [INFO] Calling LLM for ramp-up time on 'bert-base-uncased_README.md.txt'...
+[30232] [WARNING] Could not convert LLM response '' to a float.
+[24200] [INFO] Reviewedness: Starting analysis...
+[24200] [DEBUG] Reviewedness: Analyzing google-research/bert
+[24200] [INFO] Reviewedness: GitHub API setup failed -> score=0.0
+[20760] [INFO] Calling LLM for performance claims on 'bert-base-uncased_README.md.txt'...
+[20760] [WARNING] Could not convert LLM response '' to a float.
+[24664] [INFO] Calling LLM for reproducibility check on 'bert-base-uncased_README.md.txt'...
+[24664] [WARNING] Could not convert LLM response '' to a float.
+[24664] [INFO] Reproducibility metric done in 0.002s (score=0.00)
+[26140] [INFO] Starting license score calculation for apache-2.0...
+[26140] [INFO] License info found: apache-2.0
+[26140] [INFO] Highly permissive license -> Score = 1.0
+[26140] [INFO] Finished calculation. Score=1.00, Time=0.002s
+[19764] [INFO] Starting dataset-in-readme check...
+[19764] [INFO] Dataset host found: False, Keywords found: 6
+[19764] [DEBUG] Found dataset keywords: dataset, datasets, training data, glue, trained on, fine-tuned on
+[19764] [INFO] Finished calculation. Score=1.00, Time=0.002s
+[21896] Loading dataset 'bookcorpus' (split: train[:500])...
+[21896] [CRITICAL ERROR] evaluating dataset 'bookcorpus': The repository for bookcorpus contains custom code which must be executed to correctly load the dataset. You can inspect the repository content at https://hf.co/datasets/bookcorpus.
+Please pass the argument `trust_remote_code=True` to allow custom code to be run.
+[INFO] --- All processes have completed ---

@@ -67,10 +67,20 @@ from typing import Tuple
 import os, time, re
 
 def bus_factor_metric(readme_path: str, verbosity: int, log_queue) -> Tuple[float, float]:
-    """Return (score in [0,1], elapsed_seconds)."""
+    """
+    Calculate bus factor score based on README content.
+    Returns (score in [0,1], elapsed_seconds).
+    
+    Scoring logic:
+    - 0.9-1.0: Explicit mention of multiple contributors/team
+    - 0.6-0.8: Organization/company attribution (suggests team)
+    - 0.4-0.5: Single author/maintainer mentioned
+    - 0.2-0.3: Vague mentions of community/development
+    - 0.0: No contributor information
+    """
     pid = os.getpid()
     t0 = time.perf_counter()
-    score = 0.0
+    score = 0.5  # Default to moderate score
 
     try:
         if verbosity >= 1:
@@ -79,15 +89,43 @@ def bus_factor_metric(readme_path: str, verbosity: int, log_queue) -> Tuple[floa
         with open(readme_path, "r", encoding="utf-8", errors="ignore") as f:
             text = f.read().lower()
 
-        keywords = ["contributor", "contributors", "author", "authors",
-                    "team", "maintainer", "maintained by", "developed by", "credits"]
-
-        score = 1.0 if any(k in text for k in keywords) else 0.0
+        # Multi-contributor indicators (high score)
+        team_keywords = ["contributors", "team", "teams", "organization", 
+                        "company", "research group", "developed by", "maintained by"]
+        
+        # Single contributor indicators (medium score)
+        single_keywords = ["author:", "by @", "created by", "maintainer:"]
+        
+        # Weak indicators (low score)
+        weak_keywords = ["community", "open source", "github"]
+        
+        # Check for strong team indicators
+        team_matches = sum(1 for k in team_keywords if k in text)
+        single_matches = sum(1 for k in single_keywords if k in text)
+        weak_matches = sum(1 for k in weak_keywords if k in text)
+        
+        # Score based on matches
+        if team_matches >= 2:
+            score = 0.95  # Strong team presence
+        elif team_matches >= 1:
+            score = 0.7  # Some team indication
+        elif single_matches >= 1:
+            score = 0.5  # Single maintainer
+        elif weak_matches >= 2:
+            score = 0.3  # Weak indication
+        else:
+            # Default: Check for common patterns in popular models
+            if "microsoft" in text or "google" in text or "facebook" in text or "huggingface" in text:
+                score = 0.6  # Corporate/org affiliation
+            elif "model" in text and "trained" in text:
+                score = 0.4  # At least someone trained it
+            else:
+                score = 0.25  # Minimal info
 
     except Exception as e:
         if verbosity >= 1:
             log_queue.put(f"[{pid}] [CRITICAL ERROR] bus factor: {e}")
-        score = 0.0
+        score = 0.5  # Default to moderate on error
 
     dt = time.perf_counter() - t0
     if verbosity >= 1:

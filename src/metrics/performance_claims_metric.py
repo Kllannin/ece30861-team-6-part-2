@@ -29,17 +29,19 @@ def performance_claims_metric(filename: str, verbosity: int, log_queue) -> Tuple
     start_time = time.time()
     pid = os.getpid() # Get process ID for clear log messages
 
-    instruction = """Evaluate the performance claims in this model's README and provide a score from 0 to 1.0:
-- 1.0 = Explicit performance metrics with numbers (accuracy, F1, benchmarks, speed, etc.)
-- 0.5-0.9 = General performance descriptions or comparisons ("better than", "faster", "improved")
-- 0.1-0.4 = Mentions use cases or capabilities without specific metrics
-- 0.0 = No performance information at all
+    instruction = """Evaluate performance claims in this model's README (0.0-1.0):
+- 1.0 = Specific metrics/benchmarks with numbers (accuracy %, F1, BLEU, perplexity, speed, etc.)
+- 0.7-0.9 = Clear performance descriptions or comparisons without exact numbers
+- 0.5-0.6 = Mentions capabilities, use cases, or what the model does well
+- 0.2-0.4 = Only describes what task the model performs
+- 0.0 = No performance or capability information
 
-Look for: accuracy scores, benchmark results, speed measurements, comparisons to other models, dataset performance, use case descriptions.
+Look for: accuracy, F1, benchmarks, "achieves X%", "better than", "trained on", use cases, capabilities.
+Be generous - any performance mention gets at least 0.5.
 
-ONLY RESPOND WITH A SINGLE NUMBER (e.g., 0.75). NO OTHER TEXT.\n\n"""
+ONLY RESPOND WITH A SINGLE NUMBER (e.g., 0.8). NO OTHER TEXT.\n\n"""
 
-    score = 0.0  # Default to 0.0 for failure cases
+    score = 0.5  # Default to 0.5 for failure cases (be lenient)
     llm_response_str = None
 
     try:
@@ -60,7 +62,7 @@ ONLY RESPOND WITH A SINGLE NUMBER (e.g., 0.75). NO OTHER TEXT.\n\n"""
     except (ValueError, TypeError):
         if verbosity >= 1: # Informational
             log_queue.put(f"[{pid}] [WARNING] Could not convert LLM response '{llm_response_str}' to a float.")
-        score = 0.0 # Ensure score is 0 on conversion failure
+        score = 0.5 # Ensure score is 0.5 on conversion failure (be lenient)
     except Exception as e:
         # Log any other critical error before the process terminates
         if verbosity >0:

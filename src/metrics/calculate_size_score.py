@@ -19,11 +19,12 @@ def calculate_size_score(model_size_bytes: int, verbosity: int, log_queue) -> Tu
         # Handle edge cases: None, 0, or negative sizes
         if model_size_bytes is None or model_size_bytes <= 0:
             if verbosity >= 1:
-                log_queue.put(f"[{pid}] [WARNING] Invalid model size ({model_size_bytes}), using default minimal scores")
-            # Assume it's a very small model if size is unknown
+                log_queue.put(f"[{pid}] [WARNING] Invalid model size ({model_size_bytes}), assuming small model for default scores")
+            # Assume it's a very small model if size is unknown - give higher scores
+            # This assumes unknown size models are likely small/optimized
             scores = {
-                "raspberry_pi": 0.5,
-                "jetson_nano": 0.5,
+                "raspberry_pi": 1.0,
+                "jetson_nano": 1.0,
                 "desktop_pc": 1.0,
                 "aws_server": 1.0
             }

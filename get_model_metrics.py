@@ -9,13 +9,23 @@ def get_model_size(namespace: str, repo: str, rev: str = "main") -> float:
     If any API call fails, return 0.0
     """
     try:
+        # Input validation
+        if not namespace or not repo:
+            return 0.0
+            
         api = HuggingFaceApi(namespace, repo, rev)
         files_info = api.get_model_files_info()
+        
+        # Ensure files_info is a list
+        if not isinstance(files_info, list):
+            return 0.0
+            
         # Sum file sizes, missing sizes are zero
-        total_size = float(sum((f.get("size") or 0) for f in files_info))
+        total_size = float(sum((f.get("size") or 0) for f in files_info if isinstance(f, dict)))
         return total_size
-    except Exception:
+    except Exception as e:
         # On failure, return zero (inaccessible/missing model)
+        # Could log error here for debugging: print(f"Error getting model size for {namespace}/{repo}: {e}")
         return 0.0
 
 def get_model_README(namespace: str, repo: str, rev: str = "main") -> str:

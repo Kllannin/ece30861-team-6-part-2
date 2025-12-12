@@ -40,6 +40,12 @@ def build_model_output(
     "dataset_quality_latency":latency.get("dataset_quality", 0),
     "code_quality":scores.get("code_quality", 0.00),
     "code_quality_latency":latency.get("code_quality", 0),
+    "reproducibility":scores.get("reproducibility_metric", 0.00),
+    "reproducibility_latency":latency.get("reproducibility_metric", 0),
+    "reviewedness":scores.get("reviewedness_metric", 0.00),
+    "reviewedness_latency":latency.get("reviewedness_metric", 0),
+    "treescore":scores.get("treescore_metric", 0.00),
+    "treescore_latency":latency.get("treescore_metric", 0),
 }
     #print to stdout
     sys.stdout.write(json.dumps(output) + "\n")

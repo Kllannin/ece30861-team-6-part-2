@@ -1082,139 +1082,6 @@ async def get_model_lineage(
     }
 '''
 #starts here
-
-from typing import Optional, List, Dict, Any, Set, Tuple
-from fastapi import FastAPI, Header, HTTPException
-import logging
-
-app = FastAPI()
-
-# Your global artifacts store (assumed)
-# ARTIFACTS: Dict[str, Dict[str, Any]] = {...}
-
-# ----------------------------
-# Logger setup
-# ----------------------------
-logger = logging.getLogger("lineage")
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-    )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-
-# You can tune this:
-logger.setLevel(logging.INFO)
-
-
-# ----------------------------
-# Helpers
-# ----------------------------
-DEPENDENCY_KEYS_TOPLEVEL = (
-    "parents",
-    "parent_ids",
-    "inputs",
-    "input_ids",
-    "dependencies",
-    "dependency_ids",
-    "derived_from",
-    "derived_from_ids",
-)
-
-DEPENDENCY_KEYS_METADATA = (
-    "parents",
-    "parent_ids",
-    "inputs",
-    "input_ids",
-    "dependencies",
-    "dependency_ids",
-    "derived_from",
-    "derived_from_ids",
-)
-
-def _as_str_list(v: Any) -> List[str]:
-    """Normalize different possible dependency representations into a list[str]."""
-    if v is None:
-        return []
-    if isinstance(v, list):
-        out = []
-        for x in v:
-            if isinstance(x, str):
-                out.append(x)
-            elif isinstance(x, dict):
-                # common patterns: {"id": "..."} or {"artifact_id": "..."}
-                if "id" in x:
-                    out.append(str(x["id"]))
-                elif "artifact_id" in x:
-                    out.append(str(x["artifact_id"]))
-            else:
-                out.append(str(x))
-        return out
-    if isinstance(v, dict):
-        # sometimes stored like {"ids": [...]} or {"artifacts": [...]}
-        for kk in ("ids", "artifact_ids", "artifacts", "parents", "dependencies", "inputs"):
-            if kk in v and isinstance(v[kk], list):
-                return _as_str_list(v[kk])
-    # single string?
-    if isinstance(v, str):
-        return [v]
-    return []
-
-def get_parent_ids(artifact: Dict[str, Any]) -> List[str]:
-    """
-    Try multiple common locations for dependency/parent lists.
-    Adjust this if your project schema is known.
-    """
-    # top-level keys
-    for k in DEPENDENCY_KEYS_TOPLEVEL:
-        if k in artifact:
-            parents = _as_str_list(artifact.get(k))
-            if parents:
-                return parents
-
-    # nested metadata keys
-    md = artifact.get("metadata", {})
-    if isinstance(md, dict):
-        for k in DEPENDENCY_KEYS_METADATA:
-            if k in md:
-                parents = _as_str_list(md.get(k))
-                if parents:
-                    return parents
-
-    # nested "lineage" object if present
-    lin = artifact.get("lineage")
-    if isinstance(lin, dict):
-        # common: lineage.parents / lineage.dependencies
-        for k in ("parents", "dependencies", "inputs", "derived_from"):
-            if k in lin:
-                parents = _as_str_list(lin.get(k))
-                if parents:
-                    return parents
-
-    return []
-
-def node_for(artifact_id: str, artifact: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Build the node object expected by your API output.
-    """
-    md = artifact.get("metadata", {})
-    if not isinstance(md, dict):
-        md = {}
-
-    node_type = md.get("type", artifact.get("type", "artifact"))
-    node_name = md.get("name", artifact.get("name", artifact_id))
-
-    return {
-        "id": artifact_id,
-        "name": node_name,
-        "type": node_type,
-    }
-
-
-# ----------------------------
-# Endpoint
-# ----------------------------
 @app.get("/artifact/model/{id}/lineage", tags=["baseline"])
 async def get_model_lineage(
     id: str,
@@ -1223,62 +1090,48 @@ async def get_model_lineage(
     if id not in ARTIFACTS:
         raise HTTPException(status_code=404, detail="Artifact not found")
 
-    logger.info("Lineage request: root_id=%s", id)
+    artifact = ARTIFACTS[id]
 
-    nodes_by_id: Dict[str, Dict[str, Any]] = {}
-    edges: Set[Tuple[str, str]] = set()
+    nodes = []
+    edges = []
 
-    stack: List[str] = [id]
-    visited: Set[str] = set()
+    # 1) always include the model itself
+    nodes.append({
+        "id": id,
+        "name": artifact["metadata"]["name"],
+        "type": "model",
+    })
 
-    while stack:
-        cur = stack.pop()
+    logger.info("Lineage root: %s", id)
 
-        if cur not in ARTIFACTS:
-            # Parent might reference an artifact not present in this in-memory store.
-            logger.warning("Missing artifact in ARTIFACTS: id=%s (skipping node/children)", cur)
+    # 2) get parents (ONE place only — adjust key if needed)
+    parents = artifact.get("parents", [])
+    logger.info("Found parents: %s", parents)
+
+    for p in parents:
+        if p not in ARTIFACTS:
+            logger.warning("Parent %s not found, skipping", p)
             continue
 
-        art = ARTIFACTS[cur]
+        parent_art = ARTIFACTS[p]
 
-        # Always add the node (even if already visited)
-        if cur not in nodes_by_id:
-            nodes_by_id[cur] = node_for(cur, art)
-            logger.debug("Added node: %s", nodes_by_id[cur])
+        nodes.append({
+            "id": p,
+            "name": parent_art["metadata"]["name"],
+            "type": parent_art["metadata"].get("type", "artifact"),
+        })
 
-        if cur in visited:
-            continue
-        visited.add(cur)
+        edges.append({
+            "source": id,
+            "target": p,
+        })
 
-        parents = get_parent_ids(art)
-        logger.info("Artifact %s has %d parent(s): %s", cur, len(parents), parents)
-
-        for p in parents:
-            # Add edge cur -> p (cur depends on p)
-            edges.add((cur, p))
-
-            if p in ARTIFACTS:
-                if p not in nodes_by_id:
-                    nodes_by_id[p] = node_for(p, ARTIFACTS[p])
-                    logger.debug("Added parent node: %s", nodes_by_id[p])
-            else:
-                logger.warning("Parent referenced but not found: child=%s parent=%s", cur, p)
-
-            if p not in visited:
-                stack.append(p)
-
-    out_nodes = list(nodes_by_id.values())
-
-    # Edge object keys: most common is source/target.
-    out_edges = [{"source": s, "target": t} for (s, t) in edges]
-
-    logger.info("Lineage built: root=%s nodes=%d edges=%d", id, len(out_nodes), len(out_edges))
+    logger.info("Lineage result: nodes=%d edges=%d", len(nodes), len(edges))
 
     return {
-        "nodes": out_nodes,
-        "edges": out_edges,
+        "nodes": nodes,
+        "edges": edges,
     }
-
 
 #ends here
 

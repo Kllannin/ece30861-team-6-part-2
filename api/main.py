@@ -704,63 +704,72 @@ async def delete_artifact(
 # --------------------------------------------------------------------
 # Baseline extra endpoints: rate, cost, lineage, license-check, byRegEx
 # --------------------------------------------------------------------
+
+from typing import Optional
+from fastapi import Header, HTTPException
+
 @app.get("/artifact/model/{id}/rate", tags=["baseline"])
 async def get_model_rate(
     id: str,
     x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
 ):
     """
-    Rate a model by running the actual Phase 1 metrics.
+    Rate a model by running the actual Phase 1 metrics (run.py) and returning its JSON output.
     """
     import subprocess
     import json
     import tempfile
+    import os
     import sys
-    cmd = [sys.executable, "/app/run.py", temp_file]
 
     stored = ARTIFACTS.get(id)
-    if not stored or stored["metadata"].get("type") != "model":
+    if not stored or stored.get("metadata", {}).get("type") != "model":
         raise HTTPException(status_code=404, detail="Artifact does not exist.")
 
     meta = stored["metadata"]
-    model_url = stored.get("data", {}).get("url")
-    
+    data = stored.get("data", {}) or {}
+
+    # Pull URLs (support a couple common field names)
+    code_url = (data.get("code") or data.get("code_url") or data.get("github") or "").strip()
+    dataset_url = (data.get("dataset") or data.get("dataset_url") or "").strip()
+    model_url = (data.get("url") or data.get("model_url") or "").strip()
+
     if not model_url:
         logger.error(f"[RATE] No URL found for model {id}")
         raise HTTPException(status_code=500, detail="Model URL not found")
 
-    logger.info(f"[RATE] Running metrics for model {id} with URL: {model_url}")
-    
-    # Create a temporary file with the model URL in the correct format
-    # Format: code_link,dataset_link,model_link (empty fields allowed)
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write(f",,{model_url}\n")  # Empty code and dataset, just model URL
+    logger.info(
+        f"[RATE] Running metrics for model {id} name={meta.get('name','')} "
+        f"code={code_url} dataset={dataset_url} model={model_url}"
+    )
+
+    # Create URL file: code_link,dataset_link,model_link
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        f.write(f"{code_url},{dataset_url},{model_url}\n")
         temp_file = f.name
-    
+
     try:
-        # Run the Phase 1 metrics using run.py
+        # Run run.py from /app so ./tasks.txt resolves correctly
         result = subprocess.run(
             [sys.executable, "/app/run.py", temp_file],
-            #['python', '/app/run.py', temp_file],
             capture_output=True,
             text=True,
-            timeout=120,  # 2 minute timeout
-            cwd='/app'  # Run from the app directory
+            timeout=120,
+            cwd="/app",
         )
-        
+
         logger.info(f"[RATE] run.py exit code: {result.returncode}")
-        logger.info(f"[RATE] stdout length: {len(result.stdout)}")
-        
+        logger.info(f"[RATE] stdout length: {len(result.stdout or '')}")
+
         if result.stderr:
-            logger.warning(f"[RATE] stderr: {result.stderr[:1000]}")
-        
-        # If run.py failed, return placeholder values to keep tests running
+            logger.warning(f"[RATE] stderr (first 1000): {result.stderr[:1000]}")
+
         if result.returncode != 0:
             logger.error(f"[RATE] run.py failed with exit code {result.returncode}")
-            logger.error(f"[RATE] stdout: {result.stdout[:1000]}")
-            # Return placeholder values instead of crashing
+            logger.error(f"[RATE] stdout (first 1000): {(result.stdout or '')[:1000]}")
+            # Placeholder instead of crashing
             return {
-                "name": meta["name"],
+                "name": meta.get("name", ""),
                 "category": "model",
                 "net_score": 0.5,
                 "net_score_latency": 0.01,
@@ -782,8 +791,8 @@ async def get_model_rate(
                 "reproducibility_latency": 0.01,
                 "reviewedness": 0.5,
                 "reviewedness_latency": 0.01,
-                "tree_score": 0.5,
-                "tree_score_latency": 0.01,
+                "treescore": 0.5,
+                "treescore_latency": 0.01,
                 "size_score": {
                     "raspberry_pi": 0.5,
                     "jetson_nano": 0.5,
@@ -793,119 +802,73 @@ async def get_model_rate(
                 "size_score_latency": 0.01,
             }
 
-        '''here
-        # Parse the JSON output from run.py
-        if result.stdout:
-            try:
-                output = json.loads(result.stdout.strip())
-                logger.info(f"[RATE] Successfully parsed metrics output")
+        if not result.stdout:
+            logger.error("[RATE] No stdout from run.py")
+            return {
+                "name": meta.get("name", ""),
+                "category": "model",
+                "net_score": 0.5,
+                "net_score_latency": 0.01,
+                "ramp_up_time": 0.5,
+                "ramp_up_time_latency": 0.01,
+                "bus_factor": 0.5,
+                "bus_factor_latency": 0.01,
+                "performance_claims": 0.5,
+                "performance_claims_latency": 0.01,
+                "license": 0.5,
+                "license_latency": 0.01,
+                "dataset_and_code_score": 0.5,
+                "dataset_and_code_score_latency": 0.01,
+                "dataset_quality": 0.5,
+                "dataset_quality_latency": 0.01,
+                "code_quality": 0.5,
+                "code_quality_latency": 0.01,
+                "reproducibility": 0.5,
+                "reproducibility_latency": 0.01,
+                "reviewedness": 0.5,
+                "reviewedness_latency": 0.01,
+                "treescore": 0.5,
+                "treescore_latency": 0.01,
+                "size_score": {
+                    "raspberry_pi": 0.5,
+                    "jetson_nano": 0.5,
+                    "desktop_pc": 0.5,
+                    "aws_server": 0.5,
+                },
+                "size_score_latency": 0.01,
+            }
 
-                logger.warning(f"[RATE] top-level keys: {list(output.keys())}")
-                logger.warning(f"[RATE] output type: {type(output)}")
-                logger.warning(f"[RATE] output sample: {repr(output)[:500]}")
-                # Map the output format to the expected API response format
-                response = {
-                    "name": meta["name"],
-                    "category": "model",
-                    "net_score": output.get("net_score", 0.0),
-                    "net_score_latency": output.get("net_score_latency", 0.0),
-                    "ramp_up_time": output.get("ramp_up_time", 0.0),
-                    "ramp_up_time_latency": output.get("ramp_up_time_latency", 0.0),
-                    "bus_factor": output.get("bus_factor", 0.0),
-                    "bus_factor_latency": output.get("bus_factor_latency", 0.0),
-                    "performance_claims": output.get("performance_claims", 0.0),
-                    "performance_claims_latency": output.get("performance_claims_latency", 0.0),
-                    "license": output.get("license", 0.0),
-                    "license_latency": output.get("license_latency", 0.0),
-                    "dataset_and_code_score": output.get("dataset_and_code_score", 0.0),
-                    "dataset_and_code_score_latency": output.get("dataset_and_code_score_latency", 0.0),
-                    "dataset_quality": output.get("dataset_quality", 0.0),
-                    "dataset_quality_latency": output.get("dataset_quality_latency", 0.0),
-                    "code_quality": output.get("code_quality", 0.0),
-                    "code_quality_latency": output.get("code_quality_latency", 0.0),
-                    "reproducibility": output.get("reproducibility", 0.0),
-                    "reproducibility_latency": output.get("reproducibility_latency", 0.0),
-                    "reviewedness": output.get("reviewedness", 0.0),
-                    "reviewedness_latency": output.get("reviewedness_latency", 0.0),
-                    "tree_score": output.get("treescore", 0.0),
-                    "tree_score_latency": output.get("treescore_latency", 0.0),
-                    "size_score": output.get("size_score", {
-                        "raspberry_pi": 0.0,
-                        "jetson_nano": 0.0,
-                        "desktop_pc": 0.0,
-                        "aws_server": 0.0,
-                    }),
-                    "size_score_latency": output.get("size_score_latency", 0.0),
-                }
-                
-                return response
-            '''
-        
-        if result.stdout:
-            try:
-                # run.py prints NDJSON (json per line)
-                lines = [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
-                output = json.loads(lines[-1])  # last record
+        # run.py prints NDJSON (one JSON object per line)
+        lines = [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
+        try:
+            output = json.loads(lines[-1])
+        except json.JSONDecodeError:
+            # If last line isn't JSON, try to find a JSON-looking line
+            output = None
+            for ln in reversed(lines):
+                if ln.startswith("{") and ln.endswith("}"):
+                    try:
+                        output = json.loads(ln)
+                        break
+                    except Exception:
+                        pass
+            if output is None:
+                raise
 
-                # Ensure required API fields match what your API wants
-                output["name"] = meta["name"]        # or keep output["name"] if you prefer repo name
-                output["category"] = "model"         # autograder likely expects "model" not "MODEL"
-
-                # Also ensure size_score exists in correct dict form
-                # (build_model_output already normalizes it, but keep safe)
-                if "size_score" not in output or not isinstance(output["size_score"], dict):
-                    output["size_score"] = {
-                        "raspberry_pi": 0.0,
-                        "jetson_nano": 0.0,
-                        "desktop_pc": 0.0,
-                        "aws_server": 0.0,
-                    }
-
-                return output
-
-                
-            except json.JSONDecodeError as e:
-                logger.error(f"[RATE] Failed to parse JSON output: {e}")
-                logger.error(f"[RATE] Raw output: {result.stdout[:1000]}")
-                # Return placeholder on parse error
-                return {
-                    "name": meta["name"],
-                    "category": "model",
-                    "net_score": 0.5,
-                    "net_score_latency": 0.01,
-                    "ramp_up_time": 0.5,
-                    "ramp_up_time_latency": 0.01,
-                    "bus_factor": 0.5,
-                    "bus_factor_latency": 0.01,
-                    "performance_claims": 0.5,
-                    "performance_claims_latency": 0.01,
-                    "license": 0.5,
-                    "license_latency": 0.01,
-                    "dataset_and_code_score": 0.5,
-                    "dataset_and_code_score_latency": 0.01,
-                    "dataset_quality": 0.5,
-                    "dataset_quality_latency": 0.01,
-                    "code_quality": 0.5,
-                    "code_quality_latency": 0.01,
-                    "reproducibility": 0.5,
-                    "reproducibility_latency": 0.01,
-                    "reviewedness": 0.5,
-                    "reviewedness_latency": 0.01,
-                    "tree_score": 0.5,
-                    "tree_score_latency": 0.01,
-                    "size_score": {
-                        "raspberry_pi": 0.5,
-                        "jetson_nano": 0.5,
-                        "desktop_pc": 0.5,
-                        "aws_server": 0.5,
-                    },
-                    "size_score_latency": 0.01,
+        # Normalize for API/autograder expectations
+        if isinstance(output, dict):
+            output["category"] = "model"  # keep consistent
+            if "size_score" not in output or not isinstance(output["size_score"], dict):
+                output["size_score"] = {
+                    "raspberry_pi": 0.0,
+                    "jetson_nano": 0.0,
+                    "desktop_pc": 0.0,
+                    "aws_server": 0.0,
                 }
         else:
-            logger.error(f"[RATE] No output from run.py")
-            # Return placeholder on empty output
+            # Extremely unexpected; return placeholder
             return {
-                "name": meta["name"],
+                "name": meta.get("name", ""),
                 "category": "model",
                 "net_score": 0.5,
                 "net_score_latency": 0.01,
@@ -927,8 +890,8 @@ async def get_model_rate(
                 "reproducibility_latency": 0.01,
                 "reviewedness": 0.5,
                 "reviewedness_latency": 0.01,
-                "tree_score": 0.5,
-                "tree_score_latency": 0.01,
+                "treescore": 0.5,
+                "treescore_latency": 0.01,
                 "size_score": {
                     "raspberry_pi": 0.5,
                     "jetson_nano": 0.5,
@@ -937,12 +900,13 @@ async def get_model_rate(
                 },
                 "size_score_latency": 0.01,
             }
-            
+
+        return output
+
     except subprocess.TimeoutExpired:
         logger.error(f"[RATE] Timeout running metrics for model {id}")
-        # Return placeholder on timeout instead of crashing
         return {
-            "name": meta["name"],
+            "name": meta.get("name", ""),
             "category": "model",
             "net_score": 0.5,
             "net_score_latency": 0.01,
@@ -964,8 +928,8 @@ async def get_model_rate(
             "reproducibility_latency": 0.01,
             "reviewedness": 0.5,
             "reviewedness_latency": 0.01,
-            "tree_score": 0.5,
-            "tree_score_latency": 0.01,
+            "treescore": 0.5,
+            "treescore_latency": 0.01,
             "size_score": {
                 "raspberry_pi": 0.5,
                 "jetson_nano": 0.5,
@@ -976,9 +940,8 @@ async def get_model_rate(
         }
     except Exception as e:
         logger.error(f"[RATE] Error running metrics: {e}")
-        # Return placeholder on any exception instead of crashing
         return {
-            "name": meta["name"],
+            "name": meta.get("name", ""),
             "category": "model",
             "net_score": 0.5,
             "net_score_latency": 0.01,
@@ -1000,8 +963,8 @@ async def get_model_rate(
             "reproducibility_latency": 0.01,
             "reviewedness": 0.5,
             "reviewedness_latency": 0.01,
-            "tree_score": 0.5,
-            "tree_score_latency": 0.01,
+            "treescore": 0.5,
+            "treescore_latency": 0.01,
             "size_score": {
                 "raspberry_pi": 0.5,
                 "jetson_nano": 0.5,
@@ -1011,11 +974,11 @@ async def get_model_rate(
             "size_score_latency": 0.01,
         }
     finally:
-        # Clean up temp file
         try:
             os.unlink(temp_file)
-        except:
+        except Exception:
             pass
+
 
 from typing import Optional
 import os

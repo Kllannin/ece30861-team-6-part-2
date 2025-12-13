@@ -335,10 +335,17 @@ async def artifact_by_regex(
         )
 
     logger.info(f"[BYREGEX] extracted_pattern={pattern!r}")
-
+    if isinstance(pattern, str):
+        pattern = pattern.strip()
     if not pattern:
-        logger.info("[BYREGEX] no pattern provided – returning all artifacts")
-        return [a["metadata"] for a in ARTIFACTS.values()]
+        logger.info("[BYREGEX] no pattern provided")
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "There is missing field(s) in the artifact_regex or "
+                "it is formed improperly, or is invalid"
+            ),
+        )
 
     # ReDoS guard – reject the grader's nasty patterns
     bad_patterns = {
@@ -357,15 +364,10 @@ async def artifact_by_regex(
         )
 
     pattern_anchored = pattern
-    if not pattern_anchored.startswith("^"):
-        pattern_anchored = "^" + pattern_anchored
-    if not pattern_anchored.endswith("$"):
-        pattern_anchored = pattern_anchored + "$"
-
     logger.info(f"[BYREGEX] anchored_pattern={pattern_anchored!r}")
 
     try:
-        regex = re.compile(pattern_anchored)
+        regex = re.compile(pattern_anchored, re.IGNORECASE | re.DOTALL)
     except re.error as e:
         logger.error(f"[BYREGEX] regex_compile_error: {e}")
         raise HTTPException(
@@ -402,7 +404,8 @@ async def artifact_by_regex(
 
 
     logger.info(f"[BYREGEX] returning {len(selected)} matches")
-
+    if not selected:
+        raise HTTPException(status_code=404, detail="No such artifact.")
     for meta in selected:
         name = meta.get("name")
         art_id = meta.get("id")

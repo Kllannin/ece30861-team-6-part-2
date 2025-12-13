@@ -710,7 +710,7 @@ async def get_model_rate(
     x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
 ):
     """
-    Dummy rating that matches the ModelRating schema exactly.
+    Dummy rating that matches the ModelRating schema exactly
     """
 
     stored = ARTIFACTS.get(id)

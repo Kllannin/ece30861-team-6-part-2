@@ -1082,6 +1082,14 @@ async def get_model_lineage(
     }
 '''
 #starts here
+
+import logging
+from typing import Optional
+from fastapi import Header, HTTPException
+
+logger = logging.getLogger("lineage")
+logging.basicConfig(level=logging.INFO)
+
 @app.get("/artifact/model/{id}/lineage", tags=["baseline"])
 async def get_model_lineage(
     id: str,
@@ -1090,56 +1098,49 @@ async def get_model_lineage(
     if id not in ARTIFACTS:
         raise HTTPException(status_code=404, detail="Artifact not found")
 
-    artifact = ARTIFACTS[id]
+    model = ARTIFACTS[id]
 
     nodes = []
     edges = []
 
+    # 1) Add the model itself
     nodes.append({
         "id": id,
-        "name": artifact["metadata"]["name"],
-        "type": artifact["metadata"]["type"],
+        "name": model["metadata"]["name"],
+        "type": model["metadata"]["type"],
     })
 
     logger.info("Lineage root: %s", id)
 
-    data = artifact.get("data", {})
+    # 2) Reverse-scan all artifacts to find parents
+    for aid, artifact in ARTIFACTS.items():
+        if aid == id:
+            continue
 
-    for key, value in data.items():
+        data = artifact.get("data", {})
 
-        # single artifact reference
-        if isinstance(value, str) and value in ARTIFACTS:
-            parent = ARTIFACTS[value]
+        found = False
+
+        for v in data.values():
+            if v == id:
+                found = True
+            if isinstance(v, list) and id in v:
+                found = True
+
+        if found:
             nodes.append({
-                "id": value,
-                "name": parent["metadata"]["name"],
-                "type": parent["metadata"]["type"],
+                "id": aid,
+                "name": artifact["metadata"]["name"],
+                "type": artifact["metadata"]["type"],
             })
             edges.append({
                 "source": id,
-                "target": value,
+                "target": aid,
             })
 
-        # list of artifact references
-        if isinstance(value, list):
-            for v in value:
-                if isinstance(v, str) and v in ARTIFACTS:
-                    parent = ARTIFACTS[v]
-                    nodes.append({
-                        "id": v,
-                        "name": parent["metadata"]["name"],
-                        "type": parent["metadata"]["type"],
-                    })
-                    edges.append({
-                        "source": id,
-                        "target": v,
-                    })
+            logger.info("Found lineage parent: %s → %s", id, aid)
 
-    logger.info(
-        "Lineage result: nodes=%d edges=%d",
-        len(nodes),
-        len(edges),
-    )
+    logger.info("Lineage result: nodes=%d edges=%d", len(nodes), len(edges))
 
     return {
         "nodes": nodes,

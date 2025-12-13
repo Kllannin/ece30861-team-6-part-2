@@ -1091,45 +1091,55 @@ async def get_model_lineage(
         raise HTTPException(status_code=404, detail="Artifact not found")
 
     artifact = ARTIFACTS[id]
-    
-    logger.info("ARTIFACT KEYS: %s", artifact.keys())
-    logger.info("ARTIFACT METADATA: %s", artifact.get("metadata"))
 
     nodes = []
     edges = []
 
-    # 1) always include the model itself
     nodes.append({
         "id": id,
         "name": artifact["metadata"]["name"],
-        "type": "model",
+        "type": artifact["metadata"]["type"],
     })
 
     logger.info("Lineage root: %s", id)
 
-    # 2) get parents (ONE place only — adjust key if needed)
-    parents = artifact.get("parents", [])
-    logger.info("Found parents: %s", parents)
+    data = artifact.get("data", {})
 
-    for p in parents:
-        if p not in ARTIFACTS:
-            logger.warning("Parent %s not found, skipping", p)
-            continue
+    for key, value in data.items():
 
-        parent_art = ARTIFACTS[p]
+        # single artifact reference
+        if isinstance(value, str) and value in ARTIFACTS:
+            parent = ARTIFACTS[value]
+            nodes.append({
+                "id": value,
+                "name": parent["metadata"]["name"],
+                "type": parent["metadata"]["type"],
+            })
+            edges.append({
+                "source": id,
+                "target": value,
+            })
 
-        nodes.append({
-            "id": p,
-            "name": parent_art["metadata"]["name"],
-            "type": parent_art["metadata"].get("type", "artifact"),
-        })
+        # list of artifact references
+        if isinstance(value, list):
+            for v in value:
+                if isinstance(v, str) and v in ARTIFACTS:
+                    parent = ARTIFACTS[v]
+                    nodes.append({
+                        "id": v,
+                        "name": parent["metadata"]["name"],
+                        "type": parent["metadata"]["type"],
+                    })
+                    edges.append({
+                        "source": id,
+                        "target": v,
+                    })
 
-        edges.append({
-            "source": id,
-            "target": p,
-        })
-
-    logger.info("Lineage result: nodes=%d edges=%d", len(nodes), len(edges))
+    logger.info(
+        "Lineage result: nodes=%d edges=%d",
+        len(nodes),
+        len(edges),
+    )
 
     return {
         "nodes": nodes,

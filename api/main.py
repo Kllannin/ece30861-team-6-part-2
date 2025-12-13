@@ -718,7 +718,7 @@ async def get_model_rate(
         raise HTTPException(status_code=404, detail="Artifact does not exist.")
 
     meta = stored["metadata"]
-
+    logger.info(f"[RATE] getting hit")
     # everything is fake but structurally correct
     return {
         "name": meta["name"],

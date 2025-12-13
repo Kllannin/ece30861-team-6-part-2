@@ -1091,6 +1091,9 @@ async def get_model_lineage(
         raise HTTPException(status_code=404, detail="Artifact not found")
 
     artifact = ARTIFACTS[id]
+    
+    logger.info("ARTIFACT KEYS: %s", artifact.keys())
+    logger.info("ARTIFACT METADATA: %s", artifact.get("metadata"))
 
     nodes = []
     edges = []

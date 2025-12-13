@@ -779,7 +779,7 @@ async def get_artifact_cost(
       }
 
     For this baseline, we treat cost as the download size in MB of the stored file,
-    and we do NOT model any dependencies yet.
+    and we do NOT model any dependencies yet..
     """
 
     # 1) Validate artifact_type per spec

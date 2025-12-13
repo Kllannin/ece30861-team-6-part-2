@@ -723,6 +723,8 @@ async def get_model_rate(
     meta = stored["metadata"]
     model_url = meta.get("url", "")
 
+    logger.info(f"[RATE] getting hit for model {id}")
+
     if not model_url:
         raise HTTPException(status_code=500, detail="Model URL not found")
 

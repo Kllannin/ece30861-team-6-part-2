@@ -1,0 +1,1 @@
+,,https://huggingface.co/WinKawaks/vit-tiny-patch16-224

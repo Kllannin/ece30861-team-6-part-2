@@ -1,1 +1,0 @@
-[68632] [WARNING] Could not find PyLint score line in output for ''.

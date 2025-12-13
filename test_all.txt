@@ -1,0 +1,10 @@
+,,https://huggingface.co/google-bert/bert-base-uncased
+,,https://huggingface.co/parvk11/audience_classifier_model
+,,https://huggingface.co/openai/whisper-tiny
+,,https://huggingface.co/distilbert-base-uncased-distilled-squad
+,,https://huggingface.co/caidas/swin2SR-lightweight-x2-64
+,,https://huggingface.co/vikhyatk/moondream2
+,,https://huggingface.co/microsoft/git-base
+,,https://huggingface.co/WinKawaks/vit-tiny-patch16-224
+,,https://huggingface.co/patrickjohncyh/fashion-clip
+,,https://huggingface.co/lerobot/diffusion_pusht

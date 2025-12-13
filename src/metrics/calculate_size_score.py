@@ -4,28 +4,6 @@ from typing import Tuple, Dict
 
 def calculate_size_score(model_size_bytes: int, verbosity: int, log_queue) -> Tuple[dict, float]:
     """
-    PLACEHOLDER: Returns fixed scores to test autograder behavior
-    """
-    pid = os.getpid()
-    start_time = time.perf_counter()
-    
-    if verbosity >= 1:
-        log_queue.put(f"[{pid}] [INFO] Using PLACEHOLDER size score (all 0.5)")
-    
-    # Placeholder: return neutral scores for all platforms
-    scores: Dict[str, float] = {
-        "raspberry_pi": 0.5,
-        "jetson_nano": 0.5,
-        "desktop_pc": 0.5,
-        "aws_server": 0.5
-    }
-    
-    time_taken = time.perf_counter() - start_time
-    return scores, time_taken
-
-def calculate_size_score_ORIGINAL(model_size_bytes: int, verbosity: int, log_queue) -> Tuple[dict, float]:
-    """
-    ORIGINAL IMPLEMENTATION - DISABLED FOR TESTING
     Calculates a score based on the size of a model file, logging to a queue.
     Verbosity is controlled by the passed-in argument (0=silent, 1=INFO, 2=DEBUG).
     """

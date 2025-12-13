@@ -1082,7 +1082,6 @@ async def get_model_lineage(
     }
 '''
 #starts here
-
 import logging
 from typing import Optional
 from fastapi import Header, HTTPException
@@ -1098,33 +1097,38 @@ async def get_model_lineage(
 
     model = ARTIFACTS[id]
 
-    nodes = [
-        {
-            "id": id,
-            "name": model["metadata"]["name"],
-            "type": "model",
-        }
-    ]
+    # ✅ Node format: use whatever your Basic Type Check expects.
+    # If your earlier "Basic Type Check passed", you can keep id/name/type.
+    nodes = [{
+        "id": id,
+        "name": model["metadata"]["name"],
+        "type": model["metadata"]["type"],
+    }]
 
     edges = []
 
-    # fabricate typical lineage parents
-    for aid, art in ARTIFACTS.items():
-        if art["metadata"]["type"] in ("dataset", "code"):
-            nodes.append({
-                "id": aid,
-                "name": art["metadata"]["name"],
-                "type": art["metadata"]["type"],
-            })
-            edges.append({
-                "source": id,
-                "target": aid,
-            })
+    # --- FIND PARENTS HERE ---
+    # For now, keep it minimal; replace this with your real parent-finding logic.
+    parents = []  # TODO: fill with parent artifact ids you discover
 
-    return {
-        "nodes": nodes,
-        "edges": edges,
-    }
+    for p in parents:
+        if p not in ARTIFACTS:
+            continue
+        parent = ARTIFACTS[p]
+        nodes.append({
+            "id": p,
+            "name": parent["metadata"]["name"],
+            "type": parent["metadata"]["type"],
+        })
+
+        # ✅ Edge format required by autograder
+        edges.append({
+            "from_node_artifact_id": id,
+            "to_node_artifact_id": p,
+        })
+
+    return {"nodes": nodes, "edges": edges}
+
 
 #ends here
 

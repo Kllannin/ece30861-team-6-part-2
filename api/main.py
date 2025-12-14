@@ -771,7 +771,7 @@ async def get_model_rate(
         # Return placeholder on error
         return {
             "name": meta["name"],
-            "category": "model",
+            "category": "MODEL",
             "net_score": 0.5,
             "net_score_latency": 0.01,
             "ramp_up_time": 0.5,
@@ -808,7 +808,7 @@ async def get_model_rate(
         # Return placeholder on timeout
         return {
             "name": meta["name"],
-            "category": "model",
+            "category": "MODEL",
             "net_score": 0.5,
             "net_score_latency": 0.01,
             "ramp_up_time": 0.5,
@@ -844,7 +844,7 @@ async def get_model_rate(
         # Return placeholder on any exception
         return {
             "name": meta["name"],
-            "category": "model",
+            "category": "MODEL",
             "net_score": 0.5,
             "net_score_latency": 0.01,
             "ramp_up_time": 0.5,

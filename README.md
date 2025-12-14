@@ -12,10 +12,10 @@ download artifact, rate artifact, lineage, cost, license check, reset, health*
 access control enforcement*
 
 ## Architecture
-**Frontend:** Web-based UI, etc.
-**Backend:** Python, FastAPI, etc.
-**Storage:** AWS S3, local storage, etc.
-**Deployment:** AWS EC2, etc.
+- **Frontend:** Web-based UI, etc.
+- **Backend:** Python, FastAPI, etc.
+- **Storage:** AWS S3, local storage, etc.
+- **Deployment:** AWS EC2, etc.
 
 ## Usage
 *description of how to interact with the service (REST API + web UI),

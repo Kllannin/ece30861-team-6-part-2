@@ -251,7 +251,6 @@ def health_components():
 
 @app.get("/tracks", tags=["baseline"])
 def get_tracks():
-    # Matches what you already had; good enough for the autograder.
     return {
         "plannedTracks": [
             "Performance track",
@@ -624,7 +623,12 @@ async def get_artifact_by_id(
 ):
     logger.info(f"[GET ARTIFACT] {artifact_type}/{id}")
 
-    # 1) validate artifact_type
+    # validate id
+    artifact_type = artifact_type.lower()
+    if not re.fullmatch(r"[a-zA-Z0-9\-]+", id):
+        raise HTTPException(status_code=400, detail=BAD_REQUEST_MESSAGE)
+    
+    # validate artifact_type
     if artifact_type not in {"model", "dataset", "code"}:
         raise HTTPException(status_code=400, detail=BAD_REQUEST_MESSAGE)
 
@@ -659,10 +663,29 @@ def get_artifact_by_name(
     """
     logger.info(f"[BYNAME] {name}")
 
+    q_norm = name.strip().lower()
+    q_no_git_norm = (name.strip()[:-4] if name.strip().lower().endswith(".git") else name.strip()).lower()
+    q_suffix_norm = None
+    if "-" in name:
+        q_suffix_norm = name.split("-", 1)[1].strip().lower()
+        if q_suffix_norm.endswith(".git"):
+            q_suffix_norm = q_suffix_norm[:-4]
+
     matches = []
     for stored in ARTIFACTS.values():
         meta = stored["metadata"]
-        if meta["name"] == name:
+        art_name = meta["name"]
+        stored_norm = art_name.strip().lower()
+        stored_no_git_norm = (art_name.strip()[:-4] if art_name.strip().lower().endswith(".git") else art_name.strip()).lower()
+
+        if (
+            meta["name"] == name
+            or stored_norm == q_norm
+            or stored_no_git_norm == q_norm
+            or stored_norm == q_no_git_norm
+            or stored_no_git_norm == q_no_git_norm
+            or (q_suffix_norm is not None and (stored_norm == q_suffix_norm or stored_no_git_norm == q_suffix_norm))
+        ):
             matches.append(
                 {
                     "name": meta["name"],
@@ -951,8 +974,6 @@ async def get_model_rate(
         "size_score_latency": 0.01,
     }
 
-
-# ... keep your existing BAD_REQUEST_MESSAGE ...
 
 @app.get("/artifact/{artifact_type}/{id}/cost", tags=["baseline"])
 async def get_artifact_cost(

@@ -102,7 +102,7 @@ def _derive_name_from_url(url: str) -> str:
         # Owners whose prefix we want to drop (use only repo name)
         drop_owners_for_github = {
             "vikhyat",          # moondream
-            "zalandoresearch",  # fashion-mnist
+            #"zalandoresearch",  # fashion-mnist
             "huggingface",      # lerobot
             "parth1811",        # ptm-recommendation-with-transformers
             "parthvpatil18",    # aaaaa...aaab
@@ -153,7 +153,7 @@ def _derive_name_from_url(url: str) -> str:
                     return _canonicalize_name(ds)
 
                 # Some “big org” owners should be dropped in the name
-                drop_owners = {"zalandoresearch", "ilsvrc", "huggingfacem4"}
+                drop_owners = {"ilsvrc", "huggingfacem4"}
                 if owner.lower() in drop_owners:
                     return _canonicalize_name(ds)
 
@@ -676,50 +676,42 @@ def get_artifact_by_name(
     logger.info(f"[BYNAME] {name}")
 
     def normalize(s: str) -> str:
-        s = s.strip().lower().replace("_", "-")
+        s = (s or "").strip().lower().replace("_", "-")
         return s[:-4] if s.endswith(".git") else s
     
     q_norm = normalize(name)
-    q_suffix_norm: Optional[str] = None
-    if "-" in q_norm:
-        q_suffix_norm = q_norm.split("-", 1)[1]
+    q_repo = q_norm.split("-", 1)[1] if "-" in q_norm else None
 
-    matches: List[Dict[str, Any]] = []
+    exact: List[Dict[str, Any]] = []
+    query_owner_repo_stored_repo: List[Dict[str, Any]] = []
+    query_repo_stored_owner_repo: List[Dict[str, Any]] = []
+
     for stored in ARTIFACTS.values():
         meta = stored["metadata"]
-        art_name = meta["name"]
-        stored_norm = normalize(art_name)
+        stored_norm = normalize(meta.get("name", ""))
 
-        match = False
         # Exact match (ignore case, .git, and underscores)
         if stored_norm == q_norm:
-            match = True
-        # Match if name without suffix matches query suffix
-        elif q_suffix_norm is not None and stored_norm == q_suffix_norm:
-            match = True
-        # Match if name starts with query + "-"
-        elif stored_norm.startswith(q_norm + "-"):
-            match = True
-        # Match if name ends with "-" + query
-        elif stored_norm.endswith("-" + q_norm):
-            match = True
-        # Match if name ends with "-" + suffix
-        elif q_suffix_norm is not None and stored_norm.endswith("-" + q_suffix_norm):
-            match = True
+            exact.append({"name": meta["name"], "id": meta["id"], "type": meta["type"]})
+            continue
 
-        if match:
-            matches.append(
-                {
-                    "name": meta["name"],
-                    "id": meta["id"],
-                    "type": meta["type"],
-                }
-            )
+        # No exact exists
+        if q_repo is not None and stored_norm == q_repo:
+            query_owner_repo_stored_repo.append({"name": meta["name"], "id": meta["id"], "type": meta["type"]})
+            continue
 
-    if not matches:
-        raise HTTPException(status_code=404, detail="No such artifact.")
+        if q_repo is None and "-" in stored_norm and stored_norm.split("-", 1)[1] == q_norm:
+            query_repo_stored_owner_repo.append({"name": meta["name"], "id": meta["id"], "type": meta["type"]})
+            continue
+    
+    if exact:
+        return exact
+    if query_owner_repo_stored_repo:
+        return query_owner_repo_stored_repo
+    if query_repo_stored_owner_repo:
+        return query_repo_stored_owner_repo
 
-    return matches
+    raise HTTPException(status_code=404, detail="No such artifact.")
 
 
 @app.put(

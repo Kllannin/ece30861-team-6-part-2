@@ -39,7 +39,7 @@ logger.addHandler(fh)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # OK for class project
+    allow_origins=["http://acme-registry-artifacts-us-east-2.s3-website-us-east-2.amazonaws.com"],  # OK for class project
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -19,7 +19,15 @@ import uuid
 from enum import Enum
 from typing import List, Dict, Optional, Any
 from urllib.parse import urlparse
+from fastapi.middleware.cors import CORSMiddleware
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # OK for class project
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app = FastAPI(title="Model Registry")
 

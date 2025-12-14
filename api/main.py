@@ -632,7 +632,16 @@ async def get_artifact_by_id(
     if artifact_type not in {"model", "dataset", "code"}:
         raise HTTPException(status_code=400, detail=BAD_REQUEST_MESSAGE)
 
+    # direct match
     stored = ARTIFACTS.get(id)
+    if not stored:
+        # case-insensitive match
+        for stored_id, info in ARTIFACTS.items():
+            if stored_id.lower() == id.lower():
+                stored = info
+                # update id for further checks
+                id = stored_id
+                break
     if not stored:
         raise HTTPException(status_code=404, detail="Artifact does not exist.")
 
@@ -666,33 +675,39 @@ def get_artifact_by_name(
     """
     logger.info(f"[BYNAME] {name}")
 
-    q_norm = name.strip().lower()
-    q_no_git_norm = (name.strip()[:-4] if name.strip().lower().endswith(".git") else name.strip()).lower()
-    q_suffix_norm = None
-    if "-" in name:
-        q_suffix_norm = name.split("-", 1)[1].strip().lower()
-        if q_suffix_norm.endswith(".git"):
-            q_suffix_norm = q_suffix_norm[:-4]
+    def normalize(s: str) -> str:
+        s = s.strip().lower().replace("_", "-")
+        return s[:-4] if s.endswith(".git") else s
+    
+    q_norm = normalize(name)
+    q_suffix_norm: Optional[str] = None
+    if "-" in q_norm:
+        q_suffix_norm = q_norm.split("-", 1)[1]
 
-    matches = []
+    matches: List[Dict[str, Any]] = []
     for stored in ARTIFACTS.values():
         meta = stored["metadata"]
         art_name = meta["name"]
-        stored_norm = art_name.strip().lower()
-        stored_no_git_norm = (art_name.strip()[:-4] if art_name.strip().lower().endswith(".git") else art_name.strip()).lower()
+        stored_norm = normalize(art_name)
 
-        if (
-            meta["name"] == name
-            or stored_norm == q_norm
-            or stored_no_git_norm == q_norm
-            or stored_norm == q_no_git_norm
-            or stored_no_git_norm == q_no_git_norm
-            or (q_suffix_norm is not None and (stored_norm == q_suffix_norm or stored_no_git_norm == q_suffix_norm))
-            or stored_norm.endswith("-" + q_norm)
-            or stored_no_git_norm.endswith("-" + q_norm)
-            or stored_norm.endswith("-" + q_no_git_norm)
-            or stored_no_git_norm.endswith("-" + q_no_git_norm)
-        ):
+        match = False
+        # Exact match (ignore case, .git, and underscores)
+        if stored_norm == q_norm:
+            match = True
+        # Match if name without suffix matches query suffix
+        elif q_suffix_norm is not None and stored_norm == q_suffix_norm:
+            match = True
+        # Match if name starts with query + "-"
+        elif stored_norm.startswith(q_norm + "-"):
+            match = True
+        # Match if name ends with "-" + query
+        elif stored_norm.endswith("-" + q_norm):
+            match = True
+        # Match if name ends with "-" + suffix
+        elif q_suffix_norm is not None and stored_norm.endswith("-" + q_suffix_norm):
+            match = True
+
+        if match:
             matches.append(
                 {
                     "name": meta["name"],

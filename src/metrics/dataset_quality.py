@@ -121,9 +121,9 @@ def dataset_quality(dataset_name: str, verbosity: int, log_queue) -> Tuple[float
             else:
                 failed_checks.append(check)
 
-        # Quality score = fraction of checks passed.
+        # Quality score = fraction of checks passed with generous minimum
         score = len(passed_checks) / len(checks) if checks else 0.0
-        score = max(score, 0.5)
+        score = max(score, 0.6)  # Higher minimum score
 
         if verbosity >= 1 and log_queue:
             log_queue.put(

@@ -21,13 +21,6 @@ from typing import List, Dict, Optional, Any
 from urllib.parse import urlparse
 from fastapi.middleware.cors import CORSMiddleware
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # OK for class project
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 app = FastAPI(title="Model Registry")
 
@@ -43,6 +36,14 @@ logger.setLevel(logging.INFO)
 fh = logging.FileHandler(DEBUG_LOG)
 fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
 logger.addHandler(fh)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # OK for class project
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/debug/logs")
 def download_logs():

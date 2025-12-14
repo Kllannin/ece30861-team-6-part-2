@@ -1,19 +1,24 @@
 # main.py – Minimal baseline implementation for the model registry
 
-from fastapi import FastAPI, UploadFile, File, Header, HTTPException, Body,Request
-from pydantic import BaseModel
+from fastapi import FastAPI, Header, HTTPException, Body, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
-from urllib.parse import urlparse
-import time
-from typing import List, Dict, Optional, Any
-import uuid
-import os
-import shutil
-import re
-import logging
+from pydantic import BaseModel
+import requests
 
+import json
+import logging
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+import time
+import uuid
+from enum import Enum
+from typing import List, Dict, Optional, Any
+from urllib.parse import urlparse
 
 
 app = FastAPI(title="Model Registry")
@@ -23,7 +28,6 @@ os.makedirs(STORAGE_DIR, exist_ok=True)
 
 DEBUG_LOG = "/app/runtime.log"
 
-import logging
 
 logger = logging.getLogger("registry")
 logger.setLevel(logging.INFO)
@@ -428,9 +432,6 @@ async def artifact_by_regex(
 # POST /artifact/{artifact_type}
 # --------------------------------------------------------------------
 
-from urllib.parse import urlparse
-from typing import Optional
-from enum import Enum
 
 class ArtifactType(str, Enum):
     model = "model"
@@ -477,6 +478,27 @@ async def create_artifact(
     data_with_download = data.copy()
     data_with_download.download_url = download_url
 
+    try:
+        if not getattr(data_with_download, "readme", None) and not getattr(data_with_download, "README", None):
+            parsed = urlparse(data.url)
+            host = (parsed.netloc or "").lower()
+            segments = [segment for segment in parsed.path.strip("/").split("/") if segment]
+
+            urls = []
+            if "github.com" in host and len(segments) >= 2:
+                owner, repo = segments[0], segments[1].removesuffix(".git")
+                urls = [f"https://raw.githubusercontent.com/{owner}/{repo}/{b}/README.md" for b in ("main", "master")]
+            elif "huggingface.co" in host and segments:
+                base = "/".join(segments[:3]) if segments[0] == "datasets" else "/".join(segments[:2])
+                urls = [f"https://huggingface.co/{base}/{s}/README.md" for s in ("raw/main", "raw/master", "resolve/main", "resolve/master")]
+
+            for u in urls:
+                r = requests.get(u, timeout=5)
+                if r.status_code == 200 and r.text.strip():
+                    setattr(data_with_download, "readme", r.text[:12000])
+                    break
+    except Exception as e:
+        logger.info(f"[README] fetch failed url={data.url!r} err={e}")
 
     artifact = Artifact(
         metadata=metadata,
@@ -722,9 +744,6 @@ async def get_model_rate(
     """
     Rate a model by running the actual Phase 1 metrics.
     """
-    import subprocess
-    import json
-    import tempfile
 
     stored = ARTIFACTS.get(id)
     if not stored or stored["metadata"].get("type") != "model":
@@ -932,10 +951,6 @@ async def get_model_rate(
         "size_score_latency": 0.01,
     }
 
-
-from typing import Optional
-import os
-from fastapi import HTTPException, Header
 
 # ... keep your existing BAD_REQUEST_MESSAGE ...
 

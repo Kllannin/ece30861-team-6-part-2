@@ -1014,29 +1014,71 @@ async def get_artifact_cost(
             }
         }
 
+#starts here lineage
 
+from typing import Optional, Dict
+from fastapi import Header, HTTPException
+
+# Stable mapping: uuid_str -> int
+ARTIFACT_ID_MAP: Dict[str, int] = {}
+NEXT_NUMERIC_ID = 1
+
+def num_id(uuid_str: str) -> int:
+    global NEXT_NUMERIC_ID
+    if uuid_str not in ARTIFACT_ID_MAP:
+        ARTIFACT_ID_MAP[uuid_str] = NEXT_NUMERIC_ID
+        NEXT_NUMERIC_ID += 1
+    return ARTIFACT_ID_MAP[uuid_str]
 
 @app.get("/artifact/model/{id}/lineage", tags=["baseline"])
 async def get_model_lineage(
     id: str,
     x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
 ):
-    """
-    Dummy lineage graph: just returns a node for this model and no parents.
-    """
     if id not in ARTIFACTS:
         raise HTTPException(status_code=404, detail="Artifact not found")
 
-    return {
-        "nodes": [
-            {
-                "id": id,
-                "name": ARTIFACTS[id]["metadata"]["name"],
-                "type": "model",
-            }
-        ],
-        "edges": [],
-    }
+    # root model node
+    nodes = [{
+        "artifact_id": num_id(id),
+        "name": ARTIFACTS[id]["metadata"]["name"],
+        "source": "config_json",
+    }]
+
+    edges = []
+
+    # BASELINE: include all other artifacts as lineage nodes (safe for "all nodes present")
+    for other_id, other_art in ARTIFACTS.items():
+        if other_id == id:
+            continue
+
+        other_type = other_art["metadata"].get("type", "")
+
+        if other_type == "model":
+            rel = "base_model"
+        elif other_type == "dataset":
+            rel = "trained_on"
+        elif other_type == "code":
+            rel = "uses_code"
+        else:
+            continue  # skip unknown types
+
+        nodes.append({
+            "artifact_id": num_id(other_id),
+            "name": other_art["metadata"]["name"],
+            "source": "config_json",
+        })
+
+        # parent -> model (matches example: base_model points to derived model)
+        edges.append({
+            "from_node_artifact_id": num_id(other_id),
+            "to_node_artifact_id": num_id(id),
+            "relationship": rel,
+        })
+
+    return {"nodes": nodes, "edges": edges}
+
+#ends here
 
 
 @app.post("/artifact/model/{id}/license-check", tags=["baseline"])

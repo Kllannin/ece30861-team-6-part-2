@@ -1037,15 +1037,7 @@ async def license_check(
     """
     if id not in ARTIFACTS:
         raise HTTPException(status_code=404, detail="Artifact not found")
-
-    github_url = body.get("githubUrl") or body.get("github_url")
-
-    return {
-        "artifactId": id,
-        "githubUrl": github_url,
-        "compatible": True,
-        "reason": "Dummy implementation – assumed compatible.",
-    }
+    return True
 
 
 

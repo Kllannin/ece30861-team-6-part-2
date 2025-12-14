@@ -38,11 +38,11 @@ def rampup_time_metric(filename: str, verbosity: int, log_queue) -> Tuple[float,
 - 0.0 = No useful documentation
 
 Look for: installation steps, usage examples, code snippets, quick start sections, clear explanations.
-Be generous - if there's ANY documentation, give at least 0.6. If there are code examples or usage info, give 0.7+.
+Be generous - if there's ANY documentation, give at least 0.6.
 
 ONLY RESPOND WITH A SINGLE NUMBER (e.g., 0.85). NO OTHER TEXT.\n\n"""
 
-    score = 0.65  # Default to 0.65 for failure cases (be more lenient)
+    score = 0.6  # Default to 0.6 for failure cases (be lenient)
     llm_response_str = None
     
     try:
@@ -63,7 +63,7 @@ ONLY RESPOND WITH A SINGLE NUMBER (e.g., 0.85). NO OTHER TEXT.\n\n"""
     except (ValueError, TypeError):
         if verbosity >= 1: # Informational
             log_queue.put(f"[{pid}] [WARNING] Could not convert LLM response '{llm_response_str}' to a float.")
-        score = 0.65 # Ensure score is 0.65 on conversion failure (be lenient)
+        score = 0.6 # Ensure score is 0.6 on conversion failure (be lenient)
     except Exception as e:
         # Log any other critical error before the process terminates
         if verbosity >0:

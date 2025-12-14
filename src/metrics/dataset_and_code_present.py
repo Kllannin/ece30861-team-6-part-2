@@ -73,24 +73,15 @@ def dataset_and_code_present(filename: str, verbosity: int, log_queue) -> Tuple[
             if found_kws:
                 log_queue.put(f"[{pid}] [DEBUG] Found dataset keywords: {', '.join(found_kws)}")
 
-        # Score based on results - more granular scoring
-        if has_dataset_host and keyword_count >= 3:
-            # Very high confidence - explicit dataset link AND multiple mentions
+        # Score based on results
+        if has_dataset_host or keyword_count >= 3:
+            # High confidence - explicit dataset link or multiple mentions
             score = 1.0
-        elif has_dataset_host or keyword_count >= 5:
-            # High confidence - explicit dataset link OR many mentions
-            score = 0.85
-        elif keyword_count >= 3:
-            # Good confidence - multiple keyword mentions
-            score = 0.7
-        elif keyword_count >= 2:
-            # Medium confidence - couple of mentions
-            score = 0.6
         elif has_dataset_keyword and keyword_count >= 1:
-            # Low confidence - at least one keyword mention
-            score = 0.4
+            # Medium confidence - at least one keyword mention
+            score = 0.5
         else:
-            score = 0.2
+            score = 0.0
 
     except Exception as e:
         if verbosity >= 1 and log_queue:

@@ -31,19 +31,19 @@ def code_quality(github_str: str, verbosity: int, log_queue) -> Tuple[float, flo
     github_str_norm = (github_str or "").strip()
     github_str_norm_lower = github_str_norm.lower()
     
-    # Case 1: Empty/None - Default to 0.8 (HuggingFace models typically have decent quality)
+    # Case 1: Empty/None - Default to 0.75 (HuggingFace models typically have decent quality)
     if not github_str_norm_lower:
-        score = 0.8
+        score = 0.75
         if verbosity >= 1 and log_queue:
-            log_queue.put(f"[{pid}] code_quality: empty path/URL -> default score=0.8")
+            log_queue.put(f"[{pid}] code_quality: empty path/URL -> default score=0.75")
         time_taken_second = time.perf_counter() - start_time
         return score, time_taken_second
     
     # Case 2: Valid GitHub URL
     if github_str_norm_lower.startswith("https://github.com/") or github_str_norm_lower.startswith("http://github.com/"):
-        score = 0.8
+        score = 0.75
         if verbosity >= 1 and log_queue:
-            log_queue.put(f"[{pid}] code_quality: Github URL detected -> score=0.8")
+            log_queue.put(f"[{pid}] code_quality: Github URL detected -> score=0.75")
         time_taken_second = time.perf_counter() - start_time
         return score, time_taken_second
     

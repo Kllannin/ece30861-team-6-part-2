@@ -45,7 +45,7 @@ def build_model_output(
     "reviewedness":scores.get("reviewedness_metric", 0.00),
     "reviewedness_latency":latency.get("reviewedness_metric", 0),
     "tree_score":scores.get("treescore_metric", 0.00),
-    "tree_score_latency":latency.get("treescore_metric", 0),
+    "treescore_latency":latency.get("treescore_metric", 0),
 }
     #print to stdout
     sys.stdout.write(json.dumps(output) + "\n")

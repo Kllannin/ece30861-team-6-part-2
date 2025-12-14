@@ -37,11 +37,11 @@ def performance_claims_metric(filename: str, verbosity: int, log_queue) -> Tuple
 - 0.0 = No performance or capability information
 
 Look for: accuracy, F1, benchmarks, "achieves X%", "better than", "trained on", use cases, capabilities.
-Be generous - any performance mention gets at least 0.5. If task/capability is described, give 0.6+.
+Be generous - any performance mention gets at least 0.5.
 
 ONLY RESPOND WITH A SINGLE NUMBER (e.g., 0.8). NO OTHER TEXT.\n\n"""
 
-    score = 0.6  # Default to 0.6 for failure cases (be more lenient)
+    score = 0.5  # Default to 0.5 for failure cases (be lenient)
     llm_response_str = None
 
     try:
@@ -62,7 +62,7 @@ ONLY RESPOND WITH A SINGLE NUMBER (e.g., 0.8). NO OTHER TEXT.\n\n"""
     except (ValueError, TypeError):
         if verbosity >= 1: # Informational
             log_queue.put(f"[{pid}] [WARNING] Could not convert LLM response '{llm_response_str}' to a float.")
-        score = 0.6 # Ensure score is 0.6 on conversion failure (be lenient)
+        score = 0.5 # Ensure score is 0.5 on conversion failure (be lenient)
     except Exception as e:
         # Log any other critical error before the process terminates
         if verbosity >0:

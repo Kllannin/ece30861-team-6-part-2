@@ -1016,7 +1016,7 @@ async def get_audit_log(artifact_type: str, id: str):
 # -------------------------
 
 DEFAULT_ADMIN_NAME = "ece30861defaultadminuser"
-DEFAULT_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
+DEFAULT_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE packages;"
 TOKEN_TTL_SECONDS = 10 * 60 * 60   # 10 hours
 TOKEN_MAX_CALLS = 1000             # 1000 uses
 

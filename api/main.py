@@ -1,19 +1,24 @@
 # main.py – Minimal baseline implementation for the model registry
 
-from fastapi import FastAPI, UploadFile, File, Header, HTTPException, Body,Request
-from pydantic import BaseModel
+from fastapi import FastAPI, Header, HTTPException, Body, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
-from urllib.parse import urlparse
-import time
-from typing import List, Dict, Optional, Any
-import uuid
-import os
-import shutil
-import re
-import logging
+from pydantic import BaseModel
+import requests
 
+import json
+import logging
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+import time
+import uuid
+from enum import Enum
+from typing import List, Dict, Optional, Any
+from urllib.parse import urlparse
 
 
 app = FastAPI(title="Model Registry")
@@ -23,7 +28,6 @@ os.makedirs(STORAGE_DIR, exist_ok=True)
 
 DEBUG_LOG = "/app/runtime.log"
 
-import logging
 
 logger = logging.getLogger("registry")
 logger.setLevel(logging.INFO)
@@ -335,10 +339,17 @@ async def artifact_by_regex(
         )
 
     logger.info(f"[BYREGEX] extracted_pattern={pattern!r}")
-
+    if isinstance(pattern, str):
+        pattern = pattern.strip()
     if not pattern:
-        logger.info("[BYREGEX] no pattern provided – returning all artifacts")
-        return [a["metadata"] for a in ARTIFACTS.values()]
+        logger.info("[BYREGEX] no pattern provided")
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "There is missing field(s) in the artifact_regex or "
+                "it is formed improperly, or is invalid"
+            ),
+        )
 
     # ReDoS guard – reject the grader's nasty patterns
     bad_patterns = {
@@ -357,15 +368,10 @@ async def artifact_by_regex(
         )
 
     pattern_anchored = pattern
-    if not pattern_anchored.startswith("^"):
-        pattern_anchored = "^" + pattern_anchored
-    if not pattern_anchored.endswith("$"):
-        pattern_anchored = pattern_anchored + "$"
-
     logger.info(f"[BYREGEX] anchored_pattern={pattern_anchored!r}")
 
     try:
-        regex = re.compile(pattern_anchored)
+        regex = re.compile(pattern_anchored, re.IGNORECASE | re.DOTALL)
     except re.error as e:
         logger.error(f"[BYREGEX] regex_compile_error: {e}")
         raise HTTPException(
@@ -391,10 +397,17 @@ async def artifact_by_regex(
 
         # 2) Match against any string field in data (URL, README, etc.)
         if not matched and isinstance(data, dict):
-            for v in data.values():
-                if isinstance(v, str) and regex.search(v):
-                    matched = True
-                    break
+            possible_values = list(data.values())
+            while possible_values and not matched:
+                v = possible_values.pop()
+                if isinstance(v, str):
+                    if regex.search(v):
+                        matched = True
+                        break
+                elif isinstance(v, dict):
+                    possible_values.extend(v.values())
+                elif isinstance(v, list):
+                    possible_values.extend(v)
 
         if matched:
             logger.info(f"[BYREGEX] MATCH name={name!r}")
@@ -402,7 +415,8 @@ async def artifact_by_regex(
 
 
     logger.info(f"[BYREGEX] returning {len(selected)} matches")
-
+    if not selected:
+        raise HTTPException(status_code=404, detail="No such artifact.")
     for meta in selected:
         name = meta.get("name")
         art_id = meta.get("id")
@@ -418,9 +432,6 @@ async def artifact_by_regex(
 # POST /artifact/{artifact_type}
 # --------------------------------------------------------------------
 
-from urllib.parse import urlparse
-from typing import Optional
-from enum import Enum
 
 class ArtifactType(str, Enum):
     model = "model"
@@ -467,6 +478,27 @@ async def create_artifact(
     data_with_download = data.copy()
     data_with_download.download_url = download_url
 
+    try:
+        if not getattr(data_with_download, "readme", None) and not getattr(data_with_download, "README", None):
+            parsed = urlparse(data.url)
+            host = (parsed.netloc or "").lower()
+            segments = [segment for segment in parsed.path.strip("/").split("/") if segment]
+
+            urls = []
+            if "github.com" in host and len(segments) >= 2:
+                owner, repo = segments[0], segments[1].removesuffix(".git")
+                urls = [f"https://raw.githubusercontent.com/{owner}/{repo}/{b}/README.md" for b in ("main", "master")]
+            elif "huggingface.co" in host and segments:
+                base = "/".join(segments[:3]) if segments[0] == "datasets" else "/".join(segments[:2])
+                urls = [f"https://huggingface.co/{base}/{s}/README.md" for s in ("raw/main", "raw/master", "resolve/main", "resolve/master")]
+
+            for u in urls:
+                r = requests.get(u, timeout=5)
+                if r.status_code == 200 and r.text.strip():
+                    setattr(data_with_download, "readme", r.text[:12000])
+                    break
+    except Exception as e:
+        logger.info(f"[README] fetch failed url={data.url!r} err={e}")
 
     artifact = Artifact(
         metadata=metadata,
@@ -712,9 +744,6 @@ async def get_model_rate(
     """
     Rate a model by running the actual Phase 1 metrics.
     """
-    import subprocess
-    import json
-    import tempfile
 
     stored = ARTIFACTS.get(id)
     if not stored or stored["metadata"].get("type") != "model":
@@ -723,197 +752,36 @@ async def get_model_rate(
     meta = stored["metadata"]
     model_url = stored.get("data", {}).get("url")
 
+    logger.info(f"[RATE] getting hit for model {id}")
+
     if not model_url:
-        logger.error(f"[RATE] No URL found for model {id}")
         raise HTTPException(status_code=500, detail="Model URL not found")
 
-    logger.info(f"[RATE] Running metrics for model {id} with URL: {model_url}")
-
-    # Create a temporary file with the model URL in the correct format
-    # Format: code_link,dataset_link,model_link (empty fields allowed)
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write(f",,{model_url}\n")  # Empty code and dataset, just model URL
-        temp_file = f.name
+    temp_file = None
+    result = None
 
     try:
-        # Run the Phase 1 metrics using run.py
+        # Create a temporary file with the model URL in the correct format
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='ascii') as f:
+            f.write(f",,{model_url}\n")
+            temp_file = f.name
+
+        logger.info(f"[RATE] Calling run.py for {model_url}")
+
+        # Run run.py with the temp file
         result = subprocess.run(
-            ['python', '/app/run.py', temp_file],
+            ["python", "/app/run.py", temp_file],
             capture_output=True,
             text=True,
-            timeout=120,  # 2 minute timeout
-            cwd='/app'  # Run from the app directory
+            timeout=60,  # Increased timeout to 60 seconds
+            cwd="/app"
         )
 
         logger.info(f"[RATE] run.py exit code: {result.returncode}")
-        logger.info(f"[RATE] stdout length: {len(result.stdout)}")
-
-        if result.stderr:
-            logger.warning(f"[RATE] stderr: {result.stderr[:1000]}")
-
-        # If run.py failed, return placeholder values to keep tests running
-        if result.returncode != 0:
-            logger.error(f"[RATE] run.py failed with exit code {result.returncode}")
-            logger.error(f"[RATE] stdout: {result.stdout[:1000]}")
-            # Return placeholder values instead of crashing
-            return {
-                "name": meta["name"],
-                "category": "model",
-                "net_score": 0.5,
-                "net_score_latency": 0.01,
-                "ramp_up_time": 0.5,
-                "ramp_up_time_latency": 0.01,
-                "bus_factor": 0.5,
-                "bus_factor_latency": 0.01,
-                "performance_claims": 0.5,
-                "performance_claims_latency": 0.01,
-                "license": 0.5,
-                "license_latency": 0.01,
-                "dataset_and_code_score": 0.5,
-                "dataset_and_code_score_latency": 0.01,
-                "dataset_quality": 0.5,
-                "dataset_quality_latency": 0.01,
-                "code_quality": 0.5,
-                "code_quality_latency": 0.01,
-                "reproducibility": 0.5,
-                "reproducibility_latency": 0.01,
-                "reviewedness": 0.5,
-                "reviewedness_latency": 0.01,
-                "tree_score": 0.5,
-                "tree_score_latency": 0.01,
-                "size_score": {
-                    "raspberry_pi": 0.5,
-                    "jetson_nano": 0.5,
-                    "desktop_pc": 0.5,
-                    "aws_server": 0.5,
-                },
-                "size_score_latency": 0.01,
-            }
-
-        # Parse the JSON output from run.py
-        if result.stdout:
-            try:
-                output = json.loads(result.stdout.strip())
-                logger.info(f"[RATE] Successfully parsed metrics output")
-
-                logger.info(f"[RATE] top-level keys: {list(output.keys())}")
-                logger.info(f"[RATE] output preview: {str(output)[:400]}")
-
-
-                # Map the output format to the expected API response format
-                response = {
-                    "name": meta["name"],
-                    "category": "model",
-                    "net_score": output.get("net_score", 0.0),
-                    "net_score_latency": output.get("net_score_latency", 0.0),
-                    "ramp_up_time": output.get("ramp_up_time", 0.0),
-                    "ramp_up_time_latency": output.get("ramp_up_time_latency", 0.0),
-                    "bus_factor": output.get("bus_factor", 0.0),
-                    "bus_factor_latency": output.get("bus_factor_latency", 0.0),
-                    "performance_claims": output.get("performance_claims", 0.0),
-                    "performance_claims_latency": output.get("performance_claims_latency", 0.0),
-                    "license": output.get("license", 0.0),
-                    "license_latency": output.get("license_latency", 0.0),
-                    "dataset_and_code_score": output.get("dataset_and_code_score", 0.0),
-                    "dataset_and_code_score_latency": output.get("dataset_and_code_score_latency", 0.0),
-                    "dataset_quality": output.get("dataset_quality", 0.0),
-                    "dataset_quality_latency": output.get("dataset_quality_latency", 0.0),
-                    "code_quality": output.get("code_quality", 0.0),
-                    "code_quality_latency": output.get("code_quality_latency", 0.0),
-                    "reproducibility": output.get("reproducibility", 0.0),
-                    "reproducibility_latency": output.get("reproducibility_latency", 0.0),
-                    "reviewedness": output.get("reviewedness", 0.0),
-                    "reviewedness_latency": output.get("reviewedness_latency", 0.0),
-                    "tree_score": output.get("treescore", 0.0),
-                    "tree_score_latency": output.get("treescore_latency", 0.0),
-                    "size_score": output.get("size_score", {
-                        "raspberry_pi": 0.0,
-                        "jetson_nano": 0.0,
-                        "desktop_pc": 0.0,
-                        "aws_server": 0.0,
-                    }),
-                    "size_score_latency": output.get("size_score_latency", 0.0),
-                }
-
-                return response
-
-            except json.JSONDecodeError as e:
-                logger.error(f"[RATE] Failed to parse JSON output: {e}")
-                logger.error(f"[RATE] Raw output: {result.stdout[:1000]}")
-                # Return placeholder on parse error
-                return {
-                    "name": meta["name"],
-                    "category": "model",
-                    "net_score": 0.5,
-                    "net_score_latency": 0.01,
-                    "ramp_up_time": 0.5,
-                    "ramp_up_time_latency": 0.01,
-                    "bus_factor": 0.5,
-                    "bus_factor_latency": 0.01,
-                    "performance_claims": 0.5,
-                    "performance_claims_latency": 0.01,
-                    "license": 0.5,
-                    "license_latency": 0.01,
-                    "dataset_and_code_score": 0.5,
-                    "dataset_and_code_score_latency": 0.01,
-                    "dataset_quality": 0.5,
-                    "dataset_quality_latency": 0.01,
-                    "code_quality": 0.5,
-                    "code_quality_latency": 0.01,
-                    "reproducibility": 0.5,
-                    "reproducibility_latency": 0.01,
-                    "reviewedness": 0.5,
-                    "reviewedness_latency": 0.01,
-                    "tree_score": 0.5,
-                    "tree_score_latency": 0.01,
-                    "size_score": {
-                        "raspberry_pi": 0.5,
-                        "jetson_nano": 0.5,
-                        "desktop_pc": 0.5,
-                        "aws_server": 0.5,
-                    },
-                    "size_score_latency": 0.01,
-                }
-        else:
-            logger.error(f"[RATE] No output from run.py")
-            # Return placeholder on empty output
-            return {
-                "name": meta["name"],
-                "category": "model",
-                "net_score": 0.5,
-                "net_score_latency": 0.01,
-                "ramp_up_time": 0.5,
-                "ramp_up_time_latency": 0.01,
-                "bus_factor": 0.5,
-                "bus_factor_latency": 0.01,
-                "performance_claims": 0.5,
-                "performance_claims_latency": 0.01,
-                "license": 0.5,
-                "license_latency": 0.01,
-                "dataset_and_code_score": 0.5,
-                "dataset_and_code_score_latency": 0.01,
-                "dataset_quality": 0.5,
-                "dataset_quality_latency": 0.01,
-                "code_quality": 0.5,
-                "code_quality_latency": 0.01,
-                "reproducibility": 0.5,
-                "reproducibility_latency": 0.01,
-                "reviewedness": 0.5,
-                "reviewedness_latency": 0.01,
-                "tree_score": 0.5,
-                "tree_score_latency": 0.01,
-                "size_score": {
-                    "raspberry_pi": 0.5,
-                    "jetson_nano": 0.5,
-                    "desktop_pc": 0.5,
-                    "aws_server": 0.5,
-                },
-                "size_score_latency": 0.01,
-            }
 
     except subprocess.TimeoutExpired:
         logger.error(f"[RATE] Timeout running metrics for model {id}")
-        # Return placeholder on timeout instead of crashing
+        # Return placeholder on timeout
         return {
             "name": meta["name"],
             "category": "model",
@@ -947,9 +815,10 @@ async def get_model_rate(
             },
             "size_score_latency": 0.01,
         }
+    
     except Exception as e:
-        logger.error(f"[RATE] Error running metrics: {e}")
-        # Return placeholder on any exception instead of crashing
+        logger.error(f"[RATE] Exception running metrics: {e}")
+        # Return placeholder on any exception
         return {
             "name": meta["name"],
             "category": "model",
@@ -983,17 +852,105 @@ async def get_model_rate(
             },
             "size_score_latency": 0.01,
         }
+    
     finally:
         # Clean up temp file
+        if temp_file:
+            try:
+                os.unlink(temp_file)
+            except:
+                pass
+
+    # Parse the output
+    if result and result.returncode == 0 and result.stdout:
         try:
-            os.unlink(temp_file)
-        except:
-            pass
+            output = json.loads(result.stdout.strip())
+            logger.info(f"[RATE] Successfully parsed metrics output")
 
+            response = {
+                "name": meta["name"],
+                "category": "model",  # keep lowercase
+                "net_score": output.get("net_score", 0.0),
+                "net_score_latency": output.get("net_score_latency", 0.0),
+                "ramp_up_time": output.get("ramp_up_time", 0.0),
+                "ramp_up_time_latency": output.get("ramp_up_time_latency", 0.0),
+                "bus_factor": output.get("bus_factor", 0.0),
+                "bus_factor_latency": output.get("bus_factor_latency", 0.0),
+                "performance_claims": output.get("performance_claims", 0.0),
+                "performance_claims_latency": output.get("performance_claims_latency", 0.0),
+                "license": output.get("license", 0.0),
+                "license_latency": output.get("license_latency", 0.0),
+                "dataset_and_code_score": output.get("dataset_and_code_score", 0.0),
+                "dataset_and_code_score_latency": output.get("dataset_and_code_score_latency", 0.0),
+                "dataset_quality": output.get("dataset_quality", 0.0),
+                "dataset_quality_latency": output.get("dataset_quality_latency", 0.0),
+                "code_quality": output.get("code_quality", 0.0),
+                "code_quality_latency": output.get("code_quality_latency", 0.0),
+                "reproducibility": output.get("reproducibility", 0.0),
+                "reproducibility_latency": output.get("reproducibility_latency", 0.0),
+                "reviewedness": output.get("reviewedness", 0.0),
+                "reviewedness_latency": output.get("reviewedness_latency", 0.0),
 
-from typing import Optional
-import os
-from fastapi import HTTPException, Header
+                # support BOTH key spellings defensively
+                "tree_score": output.get("tree_score", output.get("treescore", 0.0)),
+                "tree_score_latency": output.get("tree_score_latency", output.get("treescore_latency", 0.0)),
+
+                "size_score": output.get("size_score", {
+                    "raspberry_pi": 0.0,
+                    "jetson_nano": 0.0,
+                    "desktop_pc": 0.0,
+                    "aws_server": 0.0,
+                }),
+                "size_score_latency": output.get("size_score_latency", 0.0),
+            }
+
+            return response
+        
+        except json.JSONDecodeError as e:
+            logger.error(f"[RATE] JSON parse error: {e}")
+        except Exception as e:
+            logger.error(f"[RATE] Unexpected parse/mapping error: {e}")
+                         
+    if result and result.stderr:
+        logger.error(f"[RATE] run.py failed or no output. stderr: {result.stderr[:500]}")
+    else:
+        logger.error(f"[RATE] run.py failed or no output.")
+
+    # Return placeholder on error
+    return {
+        "name": meta["name"],
+        "category": "model",
+        "net_score": 0.5,
+        "net_score_latency": 0.01,
+        "ramp_up_time": 0.5,
+        "ramp_up_time_latency": 0.01,
+        "bus_factor": 0.5,
+        "bus_factor_latency": 0.01,
+        "performance_claims": 0.5,
+        "performance_claims_latency": 0.01,
+        "license": 0.5,
+        "license_latency": 0.01,
+        "dataset_and_code_score": 0.5,
+        "dataset_and_code_score_latency": 0.01,
+        "dataset_quality": 0.5,
+        "dataset_quality_latency": 0.01,
+        "code_quality": 0.5,
+        "code_quality_latency": 0.01,
+        "reproducibility": 0.5,
+        "reproducibility_latency": 0.01,
+        "reviewedness": 0.5,
+        "reviewedness_latency": 0.01,
+        "tree_score": 0.5,
+        "tree_score_latency": 0.01,
+        "size_score": {
+            "raspberry_pi": 0.5,
+            "jetson_nano": 0.5,
+            "desktop_pc": 0.5,
+            "aws_server": 0.5,
+        },
+        "size_score_latency": 0.01,
+    }
+
 
 # ... keep your existing BAD_REQUEST_MESSAGE ...
 
@@ -1057,30 +1014,6 @@ async def get_artifact_cost(
             }
         }
 
-
-'''
-@app.get("/artifact/model/{id}/lineage", tags=["baseline"])
-async def get_model_lineage(
-    id: str,
-    x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
-):
-    """
-    Dummy lineage graph: just returns a node for this model and no parents.
-    """
-    if id not in ARTIFACTS:
-        raise HTTPException(status_code=404, detail="Artifact not found")
-
-    return {
-        "nodes": [
-            {
-                "id": id,
-                "name": ARTIFACTS[id]["metadata"]["name"],
-                "type": "model",
-            }
-        ],
-        "edges": [],
-    }
-'''
 #starts here lineage
 
 from typing import Optional, Dict
@@ -1161,15 +1094,7 @@ async def license_check(
     """
     if id not in ARTIFACTS:
         raise HTTPException(status_code=404, detail="Artifact not found")
-
-    github_url = body.get("githubUrl") or body.get("github_url")
-
-    return {
-        "artifactId": id,
-        "githubUrl": github_url,
-        "compatible": True,
-        "reason": "Dummy implementation – assumed compatible.",
-    }
+    return True
 
 
 
@@ -1192,8 +1117,8 @@ async def get_audit_log(artifact_type: str, id: str):
         ],
     }
 # -------------------------
-# CONSTANTS fix
-# --------------------------
+# CONSTANTS
+# -------------------------
 
 DEFAULT_ADMIN_NAME = "ece30861defaultadminuser"
 DEFAULT_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE packages;"

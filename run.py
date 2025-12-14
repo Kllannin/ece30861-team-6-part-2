@@ -154,6 +154,7 @@ def main() -> int:
 
     # Final verbosity: env (if valid) > -v flag > 0
     verbosity = verbosity_env if verbosity_env is not None else (1 if args.verbose else 0)
+    tasks_file = os.getenv("TASKS_FILE", "./tasks.txt")
 
     # Dispatch logic
     if args.target == "install":
@@ -239,9 +240,9 @@ def main() -> int:
                 "license": license_value,
             }
 
-            # Run all metrics defined in tasks.txt using the available functions
+            # Run all metrics defined in tasks.txt (or tasks_local.txt if using local Ollama) using the available functions
             scores, latency = metric_caller.run_concurrently_from_file(
-                "./tasks.txt", input_dict, metric_funcs, resolved_log_file_path
+                tasks_file, input_dict, metric_funcs, resolved_log_file_path
             )
             build_model_output(f"{repo}", "MODEL", scores, latency)
     

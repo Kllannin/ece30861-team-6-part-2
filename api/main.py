@@ -637,7 +637,10 @@ async def get_artifact_by_id(
         raise HTTPException(status_code=404, detail="Artifact does not exist.")
 
     # type must match
-    if stored["metadata"].get("type") != artifact_type:
+    stored_type = stored["metadata"].get("type")
+    if hasattr(stored_type, "value"):
+        stored_type = stored_type.value
+    if str(stored_type).lower() != artifact_type:
         raise HTTPException(status_code=404, detail="Artifact does not exist.")
 
     # url required
@@ -685,6 +688,10 @@ def get_artifact_by_name(
             or stored_norm == q_no_git_norm
             or stored_no_git_norm == q_no_git_norm
             or (q_suffix_norm is not None and (stored_norm == q_suffix_norm or stored_no_git_norm == q_suffix_norm))
+            or stored_norm.endswith("-" + q_norm)
+            or stored_no_git_norm.endswith("-" + q_norm)
+            or stored_norm.endswith("-" + q_no_git_norm)
+            or stored_no_git_norm.endswith("-" + q_no_git_norm)
         ):
             matches.append(
                 {

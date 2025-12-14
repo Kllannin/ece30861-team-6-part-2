@@ -554,13 +554,29 @@ def list_artifacts(
         return s[:-4] if s.lower().endswith(".git") else s
 
     # Normalized query forms
-    q_raw = name_query
     q_norm = normalize_name(name_query)
+    q_no_git_norm = normalize_name(strip_git(name_query))
 
     # If the query has an "owner-repo" form, take the part after the first "-"
     q_suffix_norm = None
     if name_query != "*" and "-" in name_query:
-        q_suffix_norm = normalize_name(name_query.split("-", 1)[1])
+        q_suffix_norm = normalize_name(strip_git(name_query.split("-", 1)[1]))
+
+    # Check for an exact match to query
+    is_exact_match = False
+    if name_query != "*":
+        for _stored in ARTIFACTS.values():
+            _art_name = _stored["metadata"]["name"]
+            _stored_norm = normalize_name(_art_name)
+            _stored_no_git_norm = normalize_name(strip_git(_art_name))
+            if (
+                _stored_norm == q_norm
+                or _stored_no_git_norm == q_norm
+                or _stored_norm == q_no_git_norm
+                or _stored_no_git_norm == q_no_git_norm
+            ):
+                is_exact_match = True
+                break
 
     results = []
 
@@ -578,16 +594,28 @@ def list_artifacts(
             match = False
 
             # 1) Exact (case-insensitive) match
-            if stored_norm == q_norm or stored_no_git_norm == q_norm:
+            if (
+                stored_norm == q_norm
+                or stored_no_git_norm == q_norm
+                or stored_norm == q_no_git_norm
+                or stored_no_git_norm == q_no_git_norm
+            ):
                 match = True
 
-            # 2) If query is "owner-repo", also try matching just "repo"
-            if not match and q_suffix_norm is not None:
+            # 2) If query is "owner-repo", also try matching just "repo" (when no exact match for full query)
+            if (not match) and (not is_exact_match) and (q_suffix_norm is not None):
                 if stored_norm == q_suffix_norm or stored_no_git_norm == q_suffix_norm:
                     match = True
 
+            # 3) If query has unpredicted arbitrary suffix (when no exact match for full query)
+            if (not match) and (not is_exact_match) and ("-" in q_no_git_norm):
+                if "-" in stored_no_git_norm:
+                    stored_parent_norm = stored_no_git_norm.rsplit("-", 1)[0]
+                    if stored_parent_norm == q_no_git_norm:
+                        match = True
+            
+            # 4) This artifact does not match the name query
             if not match:
-                # This artifact does not match the name query
                 continue
 
         # ---------- TYPE FILTER ----------

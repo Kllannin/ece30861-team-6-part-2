@@ -1,47 +1,314 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>ACME Model Registry Frontend</title>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ACME Model Registry Frontend</title>
   <style>
-    body { font-family: Arial; padding: 2em; }
-    input, button { margin: 0.5em; }
-    pre { background: #f4f4f4; padding: 1em; }
+    body { font-family: Arial, sans-serif; padding: 2rem; line-height: 1.4; }
+    .row { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; margin: 1rem 0; }
+    label { display: block; margin-top: 0.75rem; font-weight: 600; }
+    input, select, button, textarea { font: inherit; padding: 0.5rem; margin-top: 0.25rem; }
+    input, select, textarea { width: min(700px, 100%); }
+    button { cursor: pointer; }
+    button:focus, input:focus, select:focus, textarea:focus { outline: 3px solid #000; outline-offset: 2px; }
+    pre { background: #f5f5f5; padding: 1rem; overflow: auto; border-radius: 10px; }
+    .small { color: #444; font-size: 0.95rem; }
+    .status { padding: 0.75rem; border-radius: 10px; background: #eef; }
   </style>
 </head>
 <body>
   <h1>ACME Model Registry Frontend (MVP)</h1>
-  <p>Backend: <span id="backend-url"></span></p>
 
-  <h2>Search Artifact by ID</h2>
-  <input type="text" id="artifactId" placeholder="Enter artifact ID">
-  <button onclick="lookup()">Search</button>
+  <p class="small">
+    Backend:
+    <span id="backend-url"></span>
+  </p>
 
-  <h2>Upload New Artifact</h2>
-  <input type="file" id="artifactFile">
-  <button onclick="upload()">Upload</button>
+  <div class="card">
+    <h2>Authenticate (Access Control)</h2>
+    <p class="small">Generates a bearer token (stored locally in this page and sent via <code>X-Authorization</code> when required).</p>
 
-  <h3>Response</h3>
-  <pre id="output"></pre>
+    <label for="username">Username</label>
+    <input id="username" type="text" value="ece30861defaultadminuser" autocomplete="username" />
+
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password" />
+
+    <button type="button" onclick="doAuth()">Authenticate</button>
+
+    <p class="small">Current token: <code id="tokenPreview">(none)</code></p>
+  </div>
+
+  <div class="card">
+    <h2>Ingest Artifact (Register by URL)</h2>
+
+    <label for="ingestType">Artifact type</label>
+    <select id="ingestType">
+      <option value="model">model</option>
+      <option value="dataset">dataset</option>
+      <option value="code">code</option>
+    </select>
+
+    <label for="ingestUrl">Artifact URL</label>
+    <input id="ingestUrl" type="url" placeholder="https://github.com/... or https://huggingface.co/..." />
+
+    <button type="button" onclick="ingest()">Ingest</button>
+  </div>
+
+  <div class="card">
+    <h2>Query Artifacts (POST /artifacts)</h2>
+
+    <label for="queryName">Name (use * for wildcard)</label>
+    <input id="queryName" type="text" value="*" />
+
+    <fieldset style="border: 0; padding: 0; margin: 0.75rem 0;">
+      <legend style="font-weight: 600;">Types (optional)</legend>
+      <label><input type="checkbox" id="qtModel" checked /> model</label>
+      <label><input type="checkbox" id="qtDataset" checked /> dataset</label>
+      <label><input type="checkbox" id="qtCode" checked /> code</label>
+    </fieldset>
+
+    <button type="button" onclick="queryArtifacts()">Query</button>
+  </div>
+
+  <div class="card">
+    <h2>Get / Delete / Cost / Rate / Lineage</h2>
+
+    <label for="opType">Artifact type</label>
+    <select id="opType">
+      <option value="model">model</option>
+      <option value="dataset">dataset</option>
+      <option value="code">code</option>
+    </select>
+
+    <label for="opId">Artifact ID</label>
+    <input id="opId" type="text" placeholder="UUID..." />
+
+    <div class="row">
+      <button type="button" onclick="getById()">Get Artifact</button>
+      <button type="button" onclick="deleteById()">Delete Artifact</button>
+      <button type="button" onclick="getCost()">Get Cost</button>
+      <button type="button" onclick="rateModel()">Rate Model</button>
+      <button type="button" onclick="getLineage()">Get Lineage</button>
+    </div>
+
+    <p class="small">Note: Rate/Lineage apply to <b>model</b> IDs.</p>
+  </div>
+
+  <h2>Response</h2>
+  <div class="status" id="status" aria-live="polite">Ready.</div>
+  <pre id="output" aria-label="API response output"></pre>
 
   <script>
+    // ✅ IMPORTANT: include the scheme and port if needed
     const backend = "http://ec2-18-191-196-54.us-east-2.compute.amazonaws.com";
     document.getElementById("backend-url").innerText = backend;
 
-    async function lookup() {
-      const id = document.getElementById("artifactId").value;
-      const resp = await fetch(`${backend}/artifacts/${id}`);
-      document.getElementById("output").innerText = await resp.text();
+    let bearerToken = null;
+
+    function setStatus(msg) {
+      document.getElementById("status").innerText = msg;
     }
 
-    async function upload() {
-      const fileInput = document.getElementById("artifactFile");
-      if (!fileInput.files.length) return alert("Choose a file first!");
-      const formData = new FormData();
-      formData.append("file", fileInput.files[0]);
-      formData.append("name", fileInput.files[0].name);
-      const resp = await fetch(`${backend}/upload`, { method: "POST", body: formData });
-      document.getElementById("output").innerText = await resp.text();
+    function showOutput(text) {
+      document.getElementById("output").innerText = text;
+    }
+
+    function authHeaders() {
+      const headers = {};
+      if (bearerToken) headers["X-Authorization"] = bearerToken;
+      return headers;
+    }
+
+    async function doAuth() {
+      try {
+        setStatus("Authenticating...");
+        const name = document.getElementById("username").value.trim();
+        const password = document.getElementById("password").value;
+
+        const resp = await fetch(`${backend}/authenticate`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user: { name, is_admin: true },
+            secret: { password }
+          })
+        });
+
+        const text = await resp.text();
+        showOutput(text);
+
+        if (resp.ok) {
+          // Response is JSON string like: "bearer <token>"
+          bearerToken = JSON.parse(text);
+          document.getElementById("tokenPreview").innerText = bearerToken;
+          setStatus("Authentication successful.");
+        } else {
+          setStatus(`Authentication failed (${resp.status}).`);
+        }
+      } catch (e) {
+        setStatus("Authentication error.");
+        showOutput(String(e));
+      }
+    }
+
+    async function ingest() {
+      try {
+        setStatus("Ingesting artifact...");
+        const type = document.getElementById("ingestType").value;
+        const url = document.getElementById("ingestUrl").value.trim();
+
+        const resp = await fetch(`${backend}/artifact/${type}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify({ url })
+        });
+
+        const text = await resp.text();
+        showOutput(text);
+        setStatus(resp.ok ? "Ingest complete." : `Ingest failed (${resp.status}).`);
+      } catch (e) {
+        setStatus("Ingest error.");
+        showOutput(String(e));
+      }
+    }
+
+    async function queryArtifacts() {
+      try {
+        setStatus("Querying artifacts...");
+        const name = document.getElementById("queryName").value.trim() || "*";
+        const types = [];
+        if (document.getElementById("qtModel").checked) types.push("model");
+        if (document.getElementById("qtDataset").checked) types.push("dataset");
+        if (document.getElementById("qtCode").checked) types.push("code");
+
+        const payload = [{ name, types: types.length ? types : null }];
+
+        const resp = await fetch(`${backend}/artifacts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify(payload)
+        });
+
+        const text = await resp.text();
+        showOutput(text);
+        setStatus(resp.ok ? "Query complete." : `Query failed (${resp.status}).`);
+      } catch (e) {
+        setStatus("Query error.");
+        showOutput(String(e));
+      }
+    }
+
+    async function getById() {
+      try {
+        setStatus("Fetching artifact...");
+        const type = document.getElementById("opType").value;
+        const id = document.getElementById("opId").value.trim();
+
+        const resp = await fetch(`${backend}/artifacts/${type}/${id}`, {
+          method: "GET",
+          headers: { ...authHeaders() }
+        });
+
+        const text = await resp.text();
+        showOutput(text);
+        setStatus(resp.ok ? "Fetch complete." : `Fetch failed (${resp.status}).`);
+      } catch (e) {
+        setStatus("Fetch error.");
+        showOutput(String(e));
+      }
+    }
+
+    async function deleteById() {
+      try {
+        setStatus("Deleting artifact...");
+        const type = document.getElementById("opType").value;
+        const id = document.getElementById("opId").value.trim();
+
+        const resp = await fetch(`${backend}/artifacts/${type}/${id}`, {
+          method: "DELETE",
+          headers: { ...authHeaders() }
+        });
+
+        const text = await resp.text();
+        showOutput(text);
+        setStatus(resp.ok ? "Delete complete." : `Delete failed (${resp.status}).`);
+      } catch (e) {
+        setStatus("Delete error.");
+        showOutput(String(e));
+      }
+    }
+
+    async function getCost() {
+      try {
+        setStatus("Fetching cost...");
+        const type = document.getElementById("opType").value;
+        const id = document.getElementById("opId").value.trim();
+
+        const resp = await fetch(`${backend}/artifact/${type}/${id}/cost?dependency=true`, {
+          method: "GET",
+          headers: { ...authHeaders() }
+        });
+
+        const text = await resp.text();
+        showOutput(text);
+        setStatus(resp.ok ? "Cost fetched." : `Cost failed (${resp.status}).`);
+      } catch (e) {
+        setStatus("Cost error.");
+        showOutput(String(e));
+      }
+    }
+
+    async function rateModel() {
+      try {
+        setStatus("Rating model...");
+        const type = document.getElementById("opType").value;
+        const id = document.getElementById("opId").value.trim();
+
+        if (type !== "model") {
+          setStatus("Rate applies only to model.");
+          return;
+        }
+
+        const resp = await fetch(`${backend}/artifact/model/${id}/rate`, {
+          method: "GET",
+          headers: { ...authHeaders() }
+        });
+
+        const text = await resp.text();
+        showOutput(text);
+        setStatus(resp.ok ? "Rating complete." : `Rating failed (${resp.status}).`);
+      } catch (e) {
+        setStatus("Rating error.");
+        showOutput(String(e));
+      }
+    }
+
+    async function getLineage() {
+      try {
+        setStatus("Fetching lineage...");
+        const type = document.getElementById("opType").value;
+        const id = document.getElementById("opId").value.trim();
+
+        if (type !== "model") {
+          setStatus("Lineage applies only to model.");
+          return;
+        }
+
+        const resp = await fetch(`${backend}/artifact/model/${id}/lineage`, {
+          method: "GET",
+          headers: { ...authHeaders() }
+        });
+
+        const text = await resp.text();
+        showOutput(text);
+        setStatus(resp.ok ? "Lineage fetched." : `Lineage failed (${resp.status}).`);
+      } catch (e) {
+        setStatus("Lineage error.");
+        showOutput(String(e));
+      }
     }
   </script>
 </body>

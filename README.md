@@ -1,7 +1,7 @@
 # AI/ML Model Registry
 
 A registry service for uploading, storing, downloading, querying, and rating AI/ML model
-artifacts via both a REST API and web UI.
+artifacts via a REST API and a web UI.
 
 ## Implementation Scope
 The project implements all required baseline features and a limited subset of
@@ -14,7 +14,7 @@ Baseline features (compliant with the OpenAPI schema) include:
 - `Upload`: upload registry artifacts
 - `Download`: download artifacts
 - `Rate`: rate models over various metrics
-          (e.g., reproducability, reviewedness, treescore, net score, etc.)
+    (e.g., reproducibility, reviewedness, tree score, net score, etc.)
 - `Model ingest`: request the ingestion of a public HuggingFace model
 - `Enumerate`: fetch a directory of all models (regex capable)
 - `Lineage graph`: report the lineage graph of a model
@@ -24,21 +24,14 @@ Baseline features (compliant with the OpenAPI schema) include:
 - `Reset`: reset to empty registry state with default user
 
 ### Extended functionality - Security Track
-Extended features (approved upon renegotiation) include:
-- `User authentication`: Users authenticate with a username and password to obtain an access token.
-Tokens are to expire after a fixed duration or usage limit.
-
-- `Role-based access control`: The system defines multiple permission levels. Administrative users can
-manage user accounts. Non-admin users have restricted permissions.
-
-- `Sensitive model handling`:
-
-- `Sensitive model download history`:
+Extended features (approved upon renegotiation; partially implemented) include:
+- `User authentication`: Username/password authentication that generates access tokens.
+    Token-based access control is partially implemented.
 
 ## Architecture
-- **Frontend:** Web-based UI
+- **Frontend:** Web-based UI hosted on AWS S3
 - **Backend:** Python (FastAPI) REST service
-- **Storage:** AWS S3 or local storage
+- **Storage:** Local disk storage with associated metadata
 - **Deployment:** AWS EC2
 
 ## Configuration

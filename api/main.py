@@ -5,8 +5,9 @@ from fastapi.responses import PlainTextResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from pydantic import BaseModel
-import requests
 
+import requests
+import bcrypt
 import json
 import logging
 import os
@@ -700,6 +701,7 @@ async def update_artifact(
     """
     Very simple "update": we allow changing the URL or name.
     """
+    validate_token(x_authorization)
     stored = ARTIFACTS.get(id)
     if not stored:
         raise HTTPException(status_code=404, detail="Artifact not found")
@@ -731,6 +733,7 @@ async def delete_artifact(
     id: str,
     x_authorization: str = Header(..., alias="X-Authorization"),
 ):
+    validate_token(x_authorization)
     stored = ARTIFACTS.pop(id, None)
     if not stored:
         raise HTTPException(status_code=404, detail="Artifact not found")
@@ -1131,6 +1134,10 @@ async def get_audit_log(artifact_type: str, id: str):
 
 DEFAULT_ADMIN_NAME = "ece30861defaultadminuser"
 DEFAULT_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE packages;"
+DEFAULT_ADMIN_PASSWORD_HASH = bcrypt.hashpw(
+    b"correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE packages;",
+    bcrypt.gensalt()
+)
 TOKEN_TTL_SECONDS = 10 * 60 * 60   # 10 hours
 TOKEN_MAX_CALLS = 1000             # 1000 uses
 
@@ -1194,9 +1201,12 @@ def authenticate(req: AuthRequest):
         logger.warning(f"[AUTH] Invalid username: {req.user.name}")
         raise HTTPException(status_code=401, detail="Invalid user or password.")
 
-    # Validate password (use EXACT string from the OpenAPI spec)
+    '''# Validate password (use EXACT string from the OpenAPI spec)
     if req.secret.password != DEFAULT_ADMIN_PASSWORD:
         logger.warning("[AUTH] Invalid password attempt")
+        raise HTTPException(status_code=401, detail="Invalid user or password.")'''
+
+    if not bcrypt.checkpw(req.secret.password.encode(), DEFAULT_ADMIN_PASSWORD_HASH):
         raise HTTPException(status_code=401, detail="Invalid user or password.")
 
     # Create a token (1000 calls, 10 hours)
